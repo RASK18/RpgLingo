@@ -1,6 +1,7 @@
 using Azure;
 using Azure.AI.Translation.Text;
 using DeepL;
+using DeepL.Model;
 using Google.Cloud.Translation.V2;
 
 namespace RpgLingo;
@@ -88,7 +89,7 @@ public class Translate
             TagHandling = "html"
         };
 
-        DeepL.Model.TextResult result = client.TranslateTextAsync(text, LanguageCode.English, LanguageCode.Spanish, opt).Result;
+        TextResult result = client.TranslateTextAsync(text, LanguageCode.English, LanguageCode.Spanish, opt).Result;
 
         if (altClient)
             _config.DeepLCount2 += result.BilledCharacters;

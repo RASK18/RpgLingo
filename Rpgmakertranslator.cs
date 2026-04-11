@@ -19,14 +19,16 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
 
     // ==================== Archivos de diálogos (Maps, CommonEvents) ====================
 
-    public void TranslateDialogFile(string filePath)
+    public bool TranslateDialogFile(string filePath)
     {
+        if (IsAlreadyTranslated(filePath)) return false;
+
         _translated = 0;
         _skipped = 0;
 
         string json = File.ReadAllText(filePath);
         JsonNode? root = JsonNode.Parse(json);
-        if (root == null) return;
+        if (root == null) return false;
 
         // Maps tienen "events", CommonEvents es un array directo
         if (root is JsonObject obj && obj.ContainsKey("events"))
@@ -35,7 +37,9 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
             TranslateCommonEvents(arr);
 
         File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
+        MarkAsTranslated(filePath);
         Console.WriteLine($"  Traducidos: {_translated} | Omitidos: {_skipped}");
+        return true;
     }
 
     private void TranslateEvents(JsonArray events)
@@ -140,7 +144,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         }
 
         // Redistribuir en líneas que quepan en la ventana de diálogo
-        List<string> newLines = WrapText(translated, maxLineLength);
+        List<string> newLines = WrapTextOptimal(translated, maxLineLength);
 
         // Actualizar las líneas existentes y añadir/eliminar según sea necesario
         int originalCount = lines.Count;
@@ -207,42 +211,109 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
 
     // ==================== Archivos de objetos (Items, Weapons, etc.) ====================
 
-    public void TranslateObjectFile(string filePath)
+    /// <summary>
+    /// Campos que contienen texto largo (descripciones) y deben redistribuirse con WrapText.
+    /// </summary>
+    private static readonly HashSet<string> NeatlyFields = ["description", "profile"];
+
+    /// <summary>
+    /// Campos estándar de objetos RPG Maker a traducir.
+    /// </summary>
+    private static readonly string[] ObjectFields =
+        ["name", "description", "message1", "message2", "message3", "message4", "nickname", "profile"];
+
+    public bool TranslateObjectFile(string filePath)
     {
+        if (IsAlreadyTranslated(filePath)) return false;
+
         _translated = 0;
         _skipped = 0;
 
         string json = File.ReadAllText(filePath);
         JsonArray? root = JsonNode.Parse(json)?.AsArray();
-        if (root == null) return;
+        if (root == null) return false;
 
         foreach (JsonNode? item in root)
         {
             if (item == null) continue;
-            TranslateField(item, "name");
-            TranslateField(item, "description");
-            TranslateField(item, "message1");
-            TranslateField(item, "message2");
-            TranslateField(item, "message3");
-            TranslateField(item, "message4");
-            TranslateField(item, "nickname");
-            TranslateField(item, "profile");
+            foreach (string field in ObjectFields)
+                TranslateField(item, field, neatly: NeatlyFields.Contains(field));
         }
 
         File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
+        MarkAsTranslated(filePath);
         Console.WriteLine($"  Traducidos: {_translated} | Omitidos: {_skipped}");
+        return true;
     }
 
-    // ==================== System.json ====================
+    // ==================== Archivos genéricos (plugins custom) ====================
 
-    public void TranslateSystemFile(string filePath)
+    /// <summary>
+    /// Traduce recursivamente todos los valores string que correspondan a las claves indicadas.
+    /// Útil para archivos de plugins con estructura variable (GalleryList, etc.).
+    /// </summary>
+    public bool TranslateGenericFile(string filePath, HashSet<string> keysToTranslate)
     {
+        if (IsAlreadyTranslated(filePath)) return false;
+
         _translated = 0;
         _skipped = 0;
 
         string json = File.ReadAllText(filePath);
         JsonNode? root = JsonNode.Parse(json);
-        if (root == null) return;
+        if (root == null) return false;
+
+        TranslateRecursive(root, keysToTranslate);
+
+        File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
+        MarkAsTranslated(filePath);
+        Console.WriteLine($"  Traducidos: {_translated} | Omitidos: {_skipped}");
+        return true;
+    }
+
+    private void TranslateRecursive(JsonNode node, HashSet<string> keys)
+    {
+        if (node is JsonObject obj)
+        {
+            foreach (KeyValuePair<string, JsonNode?> prop in obj.ToList())
+            {
+                if (prop.Value is JsonObject or JsonArray)
+                {
+                    TranslateRecursive(prop.Value!, keys);
+                }
+                else if (keys.Contains(prop.Key))
+                {
+                    string val = prop.Value?.GetValue<string>() ?? "";
+                    if (!string.IsNullOrWhiteSpace(val) && val.Any(char.IsLetter))
+                    {
+                        obj[prop.Key] = JsonValue.Create(TranslateText(val));
+                        _translated++;
+                    }
+                }
+            }
+        }
+        else if (node is JsonArray arr)
+        {
+            foreach (JsonNode? item in arr)
+            {
+                if (item is JsonObject or JsonArray)
+                    TranslateRecursive(item!, keys);
+            }
+        }
+    }
+
+    // ==================== System.json ====================
+
+    public bool TranslateSystemFile(string filePath)
+    {
+        if (IsAlreadyTranslated(filePath)) return false;
+
+        _translated = 0;
+        _skipped = 0;
+
+        string json = File.ReadAllText(filePath);
+        JsonNode? root = JsonNode.Parse(json);
+        if (root == null) return false;
 
         TranslateField(root, "gameTitle");
 
@@ -272,7 +343,9 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         TranslateStringArray(root["elements"]);
 
         File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
+        MarkAsTranslated(filePath);
         Console.WriteLine($"  Traducidos: {_translated} | Omitidos: {_skipped}");
+        return true;
     }
 
     // ==================== Conteo de caracteres (dry run) ====================
@@ -302,12 +375,11 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         if (root == null) return new(0, 0, 0, 0);
 
         CharCounter counter = new(_cache);
-        string[] fields = ["name", "description", "message1", "message2", "message3", "message4", "nickname", "profile"];
 
         foreach (JsonNode? item in root)
         {
             if (item == null) continue;
-            foreach (string field in fields)
+            foreach (string field in ObjectFields)
                 counter.Add(item[field]?.GetValue<string>());
         }
 
@@ -371,34 +443,34 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
             switch (code)
             {
                 case 401 or 405:
-                    {
+                {
                         List<string> lines = [];
-                        while (i < list.Count && (list[i]?["code"]?.GetValue<int>() ?? 0) == code)
-                        {
-                            lines.Add(list[i]!["parameters"]![0]?.GetValue<string>() ?? "");
-                            i++;
-                        }
-                        string combined = string.Join(" ", lines.Select(CleanForTranslation));
-                        counter.Add(combined);
-                        break;
+                    while (i < list.Count && (list[i]?["code"]?.GetValue<int>() ?? 0) == code)
+                    {
+                        lines.Add(list[i]!["parameters"]![0]?.GetValue<string>() ?? "");
+                        i++;
                     }
+                    string combined = string.Join(" ", lines.Select(CleanForTranslation));
+                    counter.Add(combined);
+                    break;
+                }
                 case 102:
-                    {
+                {
                         JsonArray? choices = list[i]?["parameters"]?[0]?.AsArray();
-                        if (choices != null)
-                            foreach (JsonNode? c in choices)
-                                counter.Add(c?.GetValue<string>());
-                        i++;
-                        break;
-                    }
+                    if (choices != null)
+                        foreach (JsonNode? c in choices)
+                            counter.Add(c?.GetValue<string>());
+                    i++;
+                    break;
+                }
                 case 402:
-                    {
+                {
                         JsonArray? p = list[i]?["parameters"]?.AsArray();
-                        if (p is { Count: >= 2 })
-                            counter.Add(p[1]?.GetValue<string>());
-                        i++;
-                        break;
-                    }
+                    if (p is { Count: >= 2 })
+                        counter.Add(p[1]?.GetValue<string>());
+                    i++;
+                    break;
+                }
                 default:
                     i++;
                     break;
@@ -435,27 +507,38 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
 
     // ==================== Utilidades ====================
 
-    private string TranslateText(string text)
+    private string TranslateText(string text, bool neatly = false)
     {
+        // Preservar espacio inicial
+        string leadingSpace = text.Length > 0 && text[0] == ' ' ? " " : "";
+
         string cleanText = CleanForTranslation(text);
 
         if (_cache.TryGet(cleanText, out string cached))
-            return RestoreTags(text, cached);
+            return leadingSpace + RestoreTags(text, cached);
 
         string? result = _translate.ToSpanish(cleanText);
         if (result == null)
             return text;
 
         // Preservar mayúsculas/minúsculas del original
-        if (text.Length > 0 && cleanText.Length > 0 && result.Length > 0)
+        if (cleanText.Length > 0 && result.Length > 0)
         {
             if (char.IsLower(cleanText[0]) && char.IsUpper(result[0]))
                 result = char.ToLower(result[0]) + result[1..];
         }
 
         result = HttpUtility.HtmlDecode(result);
+
+        // Redistribuir en líneas para campos de descripción
+        if (neatly && result.Length > maxLineLength)
+        {
+            List<string> neatLines = WrapTextOptimal(result, maxLineLength);
+            result = string.Join("\n", neatLines);
+        }
+
         _cache.Set(cleanText, result);
-        return RestoreTags(text, result);
+        return leadingSpace + RestoreTags(text, result);
     }
 
     /// <summary>
@@ -486,7 +569,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         return translated;
     }
 
-    private void TranslateField(JsonNode node, string fieldName)
+    private void TranslateField(JsonNode node, string fieldName, bool neatly = false)
     {
         string val = node[fieldName]?.GetValue<string>() ?? "";
         if (string.IsNullOrWhiteSpace(val) || !val.Any(char.IsLetter))
@@ -495,7 +578,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
             return;
         }
 
-        node[fieldName] = JsonValue.Create(TranslateText(val));
+        node[fieldName] = JsonValue.Create(TranslateText(val, neatly));
         _translated++;
     }
 
@@ -515,36 +598,109 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         }
     }
 
-    /// <summary>
-    /// Redistribuye texto en líneas de longitud máxima,
-    /// cortando por espacios para que quepan en la ventana de diálogo.
-    /// </summary>
-    private static List<string> WrapText(string text, int maxLength)
-    {
-        List<string> lines = [];
-        string[] words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        string current = "";
+    // ==================== WrapText con programación dinámica ====================
 
-        foreach (string word in words)
+    /// <summary>
+    /// Distribuye texto en líneas minimizando el espacio sobrante (cubo).
+    /// Produce líneas más equilibradas que el algoritmo greedy.
+    /// Adaptado de: https://github.com/samuelklam/print-neatly
+    /// </summary>
+    private static List<string> WrapTextOptimal(string text, int maxLength)
+    {
+        string[] words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        int n = words.Length;
+
+        if (n == 0) return [""];
+
+        // Para textos cortos, no hace falta optimizar
+        if (text.Length <= maxLength)
+            return [text.Trim()];
+
+        double[] minPenalty = new double[n + 1];
+        int[] breakPoints = new int[n + 1];
+        Array.Fill(minPenalty, double.MaxValue);
+        minPenalty[0] = 0;
+
+        for (int j = 1; j <= n; j++)
         {
-            if (current.Length == 0)
+            int extraSpace = maxLength + 1;
+            int iMin = Math.Max(1, j + 1 - (int)Math.Ceiling(maxLength / 2.0));
+
+            for (int i = j; i >= iMin; i--)
             {
-                current = word;
-            }
-            else if (current.Length + 1 + word.Length <= maxLength)
-            {
-                current += " " + word;
-            }
-            else
-            {
-                lines.Add(current);
-                current = word;
+                extraSpace -= words[i - 1].Length + 1;
+
+                double cost;
+                if (extraSpace < 0)
+                    cost = double.MaxValue;
+                else if (j == n && extraSpace >= 0)
+                    cost = 0; // Última línea no penaliza
+                else
+                    cost = (double)extraSpace * extraSpace * extraSpace;
+
+                double penalty = minPenalty[i - 1] + cost;
+                if (penalty < minPenalty[j])
+                {
+                    minPenalty[j] = penalty;
+                    breakPoints[j] = i;
+                }
             }
         }
 
-        if (current.Length > 0)
-            lines.Add(current);
-
+        // Reconstruir líneas
+        List<string> lines = [];
+        ReconstructLines(words, n, breakPoints, lines);
         return lines.Count > 0 ? lines : [""];
+    }
+
+    private static void ReconstructLines(string[] words, int j, int[] breakPoints, List<string> lines)
+    {
+        if (j <= 0) return;
+        int i = breakPoints[j];
+        ReconstructLines(words, i - 1, breakPoints, lines);
+        lines.Add(string.Join(' ', words[(i - 1)..j]));
+    }
+
+    // ==================== Control de archivos ya traducidos ====================
+
+    private static readonly string TranslatedMarkerDir = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        "RpgLingo", "translated");
+
+    private static bool IsAlreadyTranslated(string filePath)
+    {
+        string marker = GetMarkerPath(filePath);
+        if (!File.Exists(marker)) return false;
+
+        Console.WriteLine($"  Saltando (ya traducido): {Path.GetFileName(filePath)}");
+        return true;
+    }
+
+    private static void MarkAsTranslated(string filePath)
+    {
+        string marker = GetMarkerPath(filePath);
+        Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
+        File.WriteAllText(marker, DateTime.Now.ToString("o"));
+    }
+
+    /// <summary>
+    /// Genera un path de marcador único basado en la ruta completa del archivo.
+    /// Así cada juego tiene sus propios marcadores.
+    /// </summary>
+    private static string GetMarkerPath(string filePath)
+    {
+        string hash = Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(
+                System.Text.Encoding.UTF8.GetBytes(Path.GetFullPath(filePath))))[..16];
+        return Path.Combine(TranslatedMarkerDir, hash + ".done");
+    }
+
+    /// <summary>
+    /// Limpia los marcadores para forzar retraducción.
+    /// </summary>
+    public static void ClearTranslationMarkers()
+    {
+        if (Directory.Exists(TranslatedMarkerDir))
+            Directory.Delete(TranslatedMarkerDir, true);
     }
 }

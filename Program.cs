@@ -50,6 +50,24 @@ if (!config.HasAnyApiKey())
     return;
 }
 
+// ==================== Opción de forzar retraducción ====================
+if (Directory.Exists(outputPath))
+{
+    Console.WriteLine();
+    Console.WriteLine("  Se ha encontrado una traducción previa (data_es).");
+    Console.WriteLine("  [1] Continuar donde se quedó (saltar archivos ya traducidos)");
+    Console.WriteLine("  [2] Volver a traducir todo desde cero");
+    Console.Write("  Opción: ");
+    string? opcion = Console.ReadLine()?.Trim();
+
+    if (opcion == "2")
+    {
+        RpgMakerTranslator.ClearTranslationMarkers();
+        Directory.Delete(outputPath, true);
+        Console.WriteLine("  Marcadores limpiados. Se retraducirá todo.");
+    }
+}
+
 // ==================== Inicializar ====================
 TranslationCache cache = new();
 Translate translate = new(config);
@@ -121,10 +139,15 @@ if (Console.ReadLine()?.Trim().ToLower() != "s")
 }
 
 // ==================== Fase 2: Copia de seguridad ====================
-if (Directory.Exists(outputPath))
-    Directory.Delete(outputPath, true);
-CopyDirectory(gamePath, outputPath);
-Console.WriteLine($"\n  Copia creada en: {outputPath}\n");
+if (!Directory.Exists(outputPath))
+{
+    CopyDirectory(gamePath, outputPath);
+    Console.WriteLine($"\n  Copia creada en: {outputPath}\n");
+}
+else
+{
+    Console.WriteLine($"\n  Usando copia existente: {outputPath}\n");
+}
 
 // ==================== Fase 3: Traducción ====================
 foreach (string file in dialogFiles)
