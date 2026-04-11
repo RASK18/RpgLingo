@@ -69,11 +69,46 @@ if (Directory.Exists(outputPath))
 }
 
 // ==================== Inicializar ====================
-TranslationCache cache = new();
+TranslationCache cache = new(maxSizeMB: config.CacheMaxSizeMB);
 Translate translate = new(config);
-RpgMakerTranslator translator = new(translate, cache, config.MaxLineLength);
 
-// Archivos de diálogos (Maps y CommonEvents)
+// ==================== Glosario ====================
+string glossaryPath = Path.Combine(exeDir, "glossary.json");
+Glossary glossary = new(glossaryPath);
+
+if (glossary.Count == 0)
+{
+    Console.WriteLine("\n  No se ha encontrado glosario. Generando desde los archivos del juego...");
+    int added = glossary.AutoPopulate(gamePath);
+    Console.WriteLine($"  Se han encontrado {added} términos (nombres, objetos, habilidades, etc.).");
+    Console.WriteLine($"  Guardado en: {glossaryPath}");
+    Console.WriteLine();
+    Console.WriteLine("  Puedes editar 'glossary.json' para añadir las traducciones que desees.");
+    Console.WriteLine("  Los términos sin traducción se dejarán como están en el original.");
+    Console.WriteLine("  Ejemplo:");
+    Console.WriteLine("    { \"Term\": \"Dark Knight\", \"Translation\": \"Caballero Oscuro\", \"Note\": \"Clase\" }");
+    Console.WriteLine();
+
+    if (added > 0)
+    {
+        glossary.ShowEntries(10);
+        Console.WriteLine();
+        Console.Write("  ¿Quieres editar el glosario antes de continuar? (s/n): ");
+        if (Console.ReadLine()?.Trim().ToLower() == "s")
+        {
+            Console.WriteLine($"\n  Edita el archivo y vuelve a ejecutar RpgLingo.");
+            Console.ReadKey();
+            return;
+        }
+    }
+}
+else
+{
+    glossary.ShowSummary();
+}
+
+RpgMakerTranslator translator = new(translate, cache, config.MaxLineLength, glossary);
+
 string[] dialogFiles = Directory.GetFiles(gamePath)
     .Where(f =>
     {
@@ -157,7 +192,6 @@ foreach (string file in dialogFiles)
     translator.TranslateDialogFile(outFile);
 }
 
-// Archivos de objetos (Items, Weapons, Armors, Skills, Enemies, etc.)
 foreach (string name in objectFileNames)
 {
     string path = Path.Combine(outputPath, name);
@@ -168,7 +202,6 @@ foreach (string name in objectFileNames)
     }
 }
 
-// System.json (títulos, términos del juego)
 string outputSystemPath = Path.Combine(outputPath, "System.json");
 if (File.Exists(outputSystemPath))
 {

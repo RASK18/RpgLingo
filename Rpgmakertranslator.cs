@@ -4,10 +4,11 @@ using System.Text.Json.Nodes;
 using System.Web;
 
 namespace RpgLingo;
-public class RpgMakerTranslator(Translate translate, TranslationCache cache, int maxLineLength = 55)
+public class RpgMakerTranslator(Translate translate, TranslationCache cache, int maxLineLength = 55, Glossary? glossary = null)
 {
     private readonly Translate _translate = translate;
     private readonly TranslationCache _cache = cache;
+    private readonly Glossary? _glossary = glossary;
     private int _translated;
     private int _skipped;
 
@@ -16,6 +17,11 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         WriteIndented = true,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
     };
+
+    private static readonly HashSet<string> NeatlyFields = ["description", "profile"];
+
+    private static readonly string[] ObjectFields =
+        ["name", "description", "message1", "message2", "message3", "message4", "nickname", "profile"];
 
     // ==================== Archivos de diálogos (Maps, CommonEvents) ====================
 
@@ -126,17 +132,19 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
 
         if (lines.Count == 0) return i;
 
-        // Unir en un solo texto, preservando tags RPG Maker
-        string combined = string.Join(" ", lines.Select(CleanForTranslation));
+        // Unir líneas y preparar control codes
+        string combined = string.Join(" ", lines);
+        ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(combined);
 
-        if (string.IsNullOrWhiteSpace(combined) || combined.All(c => !char.IsLetter(c)))
+        if (string.IsNullOrWhiteSpace(prepared.TextForTranslation)
+            || prepared.TextForTranslation.All(c => !char.IsLetter(c)))
         {
             _skipped += lines.Count;
             return i;
         }
 
         // Traducir (con caché)
-        string translated = TranslateText(combined);
+        string translated = TranslateText(prepared);
         if (translated == combined)
         {
             _skipped += lines.Count;
@@ -177,7 +185,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
             }
         }
 
-        Console.WriteLine($"  [{_translated}] {combined[..Math.Min(80, combined.Length)]}...");
+        Console.WriteLine($"  [{_translated}] {prepared.TextForTranslation[..Math.Min(80, prepared.TextForTranslation.Length)]}...");
         return i;
     }
 
@@ -186,14 +194,29 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         JsonArray? choices = cmd["parameters"]?[0]?.AsArray();
         if (choices == null) return;
 
+        // Batch: recoger todos los choices y traducir de una vez
+        List<string> textsToTranslate = [];
+        List<int> indices = [];
+
         for (int j = 0; j < choices.Count; j++)
         {
             string choice = choices[j]?.GetValue<string>() ?? "";
             if (string.IsNullOrWhiteSpace(choice)) continue;
+            textsToTranslate.Add(choice);
+            indices.Add(j);
+        }
 
-            string translated = TranslateText(choice);
-            choices[j] = JsonValue.Create(translated);
-            _translated++;
+        if (textsToTranslate.Count == 0) return;
+
+        List<string?> results = TranslateTextBatch(textsToTranslate);
+
+        for (int k = 0; k < indices.Count; k++)
+        {
+            if (results[k] != null)
+            {
+                choices[indices[k]] = JsonValue.Create(results[k]);
+                _translated++;
+            }
         }
     }
 
@@ -205,22 +228,12 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         string text = parameters[1]?.GetValue<string>() ?? "";
         if (string.IsNullOrWhiteSpace(text)) return;
 
-        parameters[1] = JsonValue.Create(TranslateText(text));
+        ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(text);
+        parameters[1] = JsonValue.Create(TranslateText(prepared));
         _translated++;
     }
 
     // ==================== Archivos de objetos (Items, Weapons, etc.) ====================
-
-    /// <summary>
-    /// Campos que contienen texto largo (descripciones) y deben redistribuirse con WrapText.
-    /// </summary>
-    private static readonly HashSet<string> NeatlyFields = ["description", "profile"];
-
-    /// <summary>
-    /// Campos estándar de objetos RPG Maker a traducir.
-    /// </summary>
-    private static readonly string[] ObjectFields =
-        ["name", "description", "message1", "message2", "message3", "message4", "nickname", "profile"];
 
     public bool TranslateObjectFile(string filePath)
     {
@@ -233,11 +246,43 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         JsonArray? root = JsonNode.Parse(json)?.AsArray();
         if (root == null) return false;
 
+        // Batch: recoger todos los textos, traducirlos y aplicarlos
+        List<(JsonNode node, string field, bool neatly)> fieldsToTranslate = [];
+
         foreach (JsonNode? item in root)
         {
             if (item == null) continue;
             foreach (string field in ObjectFields)
-                TranslateField(item, field, neatly: NeatlyFields.Contains(field));
+            {
+                string val = item[field]?.GetValue<string>() ?? "";
+                if (!string.IsNullOrWhiteSpace(val) && val.Any(char.IsLetter))
+                    fieldsToTranslate.Add((item, field, NeatlyFields.Contains(field)));
+                else
+                    _skipped++;
+            }
+        }
+
+        // Extraer textos para batch
+        List<string> textsForBatch = fieldsToTranslate
+            .Select(f => f.node[f.field]!.GetValue<string>())
+            .ToList();
+
+        List<string?> translations = TranslateTextBatch(textsForBatch);
+
+        for (int i = 0; i < fieldsToTranslate.Count; i++)
+        {
+            (JsonNode node, string field, bool neatly) = fieldsToTranslate[i];
+            if (translations[i] != null)
+            {
+                string result = translations[i]!;
+                if (neatly && result.Length > maxLineLength)
+                {
+                    List<string> neatLines = WrapTextOptimal(result, maxLineLength);
+                    result = string.Join("\n", neatLines);
+                }
+                node[field] = JsonValue.Create(result);
+                _translated++;
+            }
         }
 
         File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
@@ -278,15 +323,14 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
             foreach (KeyValuePair<string, JsonNode?> prop in obj.ToList())
             {
                 if (prop.Value is JsonObject or JsonArray)
-                {
                     TranslateRecursive(prop.Value!, keys);
-                }
                 else if (keys.Contains(prop.Key))
                 {
                     string val = prop.Value?.GetValue<string>() ?? "";
                     if (!string.IsNullOrWhiteSpace(val) && val.Any(char.IsLetter))
                     {
-                        obj[prop.Key] = JsonValue.Create(TranslateText(val));
+                        ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(val);
+                        obj[prop.Key] = JsonValue.Create(TranslateText(prepared));
                         _translated++;
                     }
                 }
@@ -315,7 +359,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         JsonNode? root = JsonNode.Parse(json);
         if (root == null) return false;
 
-        TranslateField(root, "gameTitle");
+        TranslateFieldSimple(root, "gameTitle");
 
         // terms.messages contiene los mensajes del sistema
         JsonNode? messages = root["terms"]?["messages"];
@@ -326,7 +370,8 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
                 string val = prop.Value?.GetValue<string>() ?? "";
                 if (!string.IsNullOrWhiteSpace(val) && val.Any(char.IsLetter))
                 {
-                    msgObj[prop.Key] = JsonValue.Create(TranslateText(val));
+                    ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(val);
+                    msgObj[prop.Key] = JsonValue.Create(TranslateText(prepared));
                     _translated++;
                 }
             }
@@ -450,8 +495,9 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
                         lines.Add(list[i]!["parameters"]![0]?.GetValue<string>() ?? "");
                         i++;
                     }
-                    string combined = string.Join(" ", lines.Select(CleanForTranslation));
-                    counter.Add(combined);
+                    string combined = string.Join(" ", lines);
+                        ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(combined);
+                    counter.Add(prepared.TextForTranslation);
                     break;
                 }
                 case 102:
@@ -495,31 +541,41 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         public void Add(string? text)
         {
             if (string.IsNullOrWhiteSpace(text) || !text.Any(char.IsLetter)) return;
-            string clean = text.Replace("\\n", " ").Trim();
-            _total += clean.Length;
+            ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(text);
+            _total += prepared.TextForTranslation.Length;
             _strings++;
-            if (_cache.TryGet(clean, out _))
-                _cached += clean.Length;
+            if (_cache.TryGet(prepared.TextForTranslation, out _))
+                _cached += prepared.TextForTranslation.Length;
         }
 
         public CharCount Result => new(_total, _cached, _total - _cached, _strings);
     }
 
-    // ==================== Utilidades ====================
+    // ==================== Utilidades de traducción ====================
 
-    private string TranslateText(string text, bool neatly = false)
+    /// <summary>
+    /// Traduce un texto ya preparado con ControlCodeHelper.
+    /// </summary>
+    private string TranslateText(ControlCodeHelper.PreparedText prepared)
     {
-        // Preservar espacio inicial
-        string leadingSpace = text.Length > 0 && text[0] == ' ' ? " " : "";
-
-        string cleanText = CleanForTranslation(text);
+        string leadingSpace = prepared.Original.Length > 0 && prepared.Original[0] == ' ' ? " " : "";
+        string cleanText = prepared.TextForTranslation;
 
         if (_cache.TryGet(cleanText, out string cached))
-            return leadingSpace + RestoreTags(text, cached);
+            return leadingSpace + ControlCodeHelper.Restore(cached, prepared);
 
-        string? result = _translate.ToSpanish(cleanText);
+        // Aplicar glosario
+        string textForApi = _glossary != null
+            ? _glossary.ApplyBeforeTranslation(cleanText)
+            : cleanText;
+
+        string? result = _translate.ToSpanish(textForApi);
         if (result == null)
-            return text;
+            return prepared.Original;
+
+        // Restaurar glosario
+        if (_glossary != null)
+            result = _glossary.ApplyAfterTranslation(result);
 
         // Preservar mayúsculas/minúsculas del original
         if (cleanText.Length > 0 && result.Length > 0)
@@ -529,47 +585,78 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         }
 
         result = HttpUtility.HtmlDecode(result);
-
-        // Redistribuir en líneas para campos de descripción
-        if (neatly && result.Length > maxLineLength)
-        {
-            List<string> neatLines = WrapTextOptimal(result, maxLineLength);
-            result = string.Join("\n", neatLines);
-        }
-
         _cache.Set(cleanText, result);
-        return leadingSpace + RestoreTags(text, result);
+
+        return leadingSpace + ControlCodeHelper.Restore(result, prepared);
     }
 
     /// <summary>
-    /// Limpia tags de RPG Maker para que no confundan al traductor,
-    /// pero los preserva para poder restaurarlos después.
+    /// Traduce un batch de textos usando la API batch cuando es posible.
     /// </summary>
-    private static string CleanForTranslation(string text)
+    private List<string?> TranslateTextBatch(List<string> texts)
     {
-        // Eliminar \N[x], \V[x], \C[x], etc. temporalmente reemplazándolos con placeholders
-        // que el traductor no toque
-        return text
-            .Replace("\\n", " ")
-            .Trim();
-    }
+        List<ControlCodeHelper.PreparedText> prepared = texts.Select(ControlCodeHelper.Prepare).ToList();
+        List<string> cleanTexts = prepared.Select(p => p.TextForTranslation).ToList();
 
-    private static string RestoreTags(string original, string translated)
-    {
-        // Si el original empezaba con \N[x], restaurar al inicio
-        if (original.StartsWith("\\N["))
+        // Separar textos cacheados de los que necesitan API
+        string?[] results = new string?[texts.Count];
+        List<(int index, string text)> toTranslate = [];
+
+        for (int i = 0; i < cleanTexts.Count; i++)
         {
-            int end = original.IndexOf(']');
-            if (end > 0)
+            if (string.IsNullOrWhiteSpace(cleanTexts[i]) || !cleanTexts[i].Any(char.IsLetter))
             {
-                string tag = original[..(end + 1)];
-                translated = tag + translated;
+                results[i] = null;
+                continue;
             }
+
+            if (_cache.TryGet(cleanTexts[i], out string cached))
+            {
+                results[i] = ControlCodeHelper.Restore(cached, prepared[i]);
+                continue;
+            }
+
+            string forApi = _glossary != null
+                ? _glossary.ApplyBeforeTranslation(cleanTexts[i])
+                : cleanTexts[i];
+            toTranslate.Add((i, forApi));
         }
-        return translated;
+
+        if (toTranslate.Count == 0) return results.ToList();
+
+        // Batch translate
+        List<string> apiTexts = toTranslate.Select(t => t.text).ToList();
+        List<string?> apiResults = _translate.ToSpanishBatch(apiTexts);
+
+        for (int k = 0; k < toTranslate.Count; k++)
+        {
+            int idx = toTranslate[k].index;
+            string? result = apiResults[k];
+
+            if (result == null)
+            {
+                results[idx] = null;
+                continue;
+            }
+
+            if (_glossary != null)
+                result = _glossary.ApplyAfterTranslation(result);
+
+            if (cleanTexts[idx].Length > 0 && result.Length > 0)
+            {
+                if (char.IsLower(cleanTexts[idx][0]) && char.IsUpper(result[0]))
+                    result = char.ToLower(result[0]) + result[1..];
+            }
+
+            result = HttpUtility.HtmlDecode(result);
+            _cache.Set(cleanTexts[idx], result);
+            results[idx] = ControlCodeHelper.Restore(result, prepared[idx]);
+        }
+
+        return results.ToList();
     }
 
-    private void TranslateField(JsonNode node, string fieldName, bool neatly = false)
+    private void TranslateFieldSimple(JsonNode node, string fieldName)
     {
         string val = node[fieldName]?.GetValue<string>() ?? "";
         if (string.IsNullOrWhiteSpace(val) || !val.Any(char.IsLetter))
@@ -578,13 +665,19 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
             return;
         }
 
-        node[fieldName] = JsonValue.Create(TranslateText(val, neatly));
+        ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(val);
+        node[fieldName] = JsonValue.Create(TranslateText(prepared));
         _translated++;
     }
 
     private void TranslateStringArray(JsonNode? node)
     {
         if (node is not JsonArray arr) return;
+
+        // Batch: recoger todos los textos del array
+        List<string> textsToTranslate = [];
+        List<int> indices = [];
+
         for (int i = 0; i < arr.Count; i++)
         {
             string val = arr[i]?.GetValue<string>() ?? "";
@@ -593,8 +686,21 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
                 _skipped++;
                 continue;
             }
-            arr[i] = JsonValue.Create(TranslateText(val));
-            _translated++;
+            textsToTranslate.Add(val);
+            indices.Add(i);
+        }
+
+        if (textsToTranslate.Count == 0) return;
+
+        List<string?> results = TranslateTextBatch(textsToTranslate);
+
+        for (int k = 0; k < indices.Count; k++)
+        {
+            if (results[k] != null)
+            {
+                arr[indices[k]] = JsonValue.Create(results[k]);
+                _translated++;
+            }
         }
     }
 
@@ -603,18 +709,15 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
     /// <summary>
     /// Distribuye texto en líneas minimizando el espacio sobrante (cubo).
     /// Produce líneas más equilibradas que el algoritmo greedy.
-    /// Adaptado de: https://github.com/samuelklam/print-neatly
     /// </summary>
     private static List<string> WrapTextOptimal(string text, int maxLength)
     {
         string[] words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         int n = words.Length;
 
-        if (n == 0) return [""];
-
         // Para textos cortos, no hace falta optimizar
-        if (text.Length <= maxLength)
-            return [text.Trim()];
+        if (n == 0) return [""];
+        if (text.Length <= maxLength) return [text.Trim()];
 
         double[] minPenalty = new double[n + 1];
         int[] breakPoints = new int[n + 1];

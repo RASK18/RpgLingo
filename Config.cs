@@ -9,6 +9,7 @@ public class Config
     public string AzureApiKey { get; set; } = "";
     public string AzureRegion { get; set; } = "westeurope";
     public int MaxLineLength { get; set; } = 55;
+    public int CacheMaxSizeMB { get; set; } = 512;
     public long DeepLCount { get; set; }
     public long DeepLCount2 { get; set; }
     public long GoogleCount { get; set; }
@@ -53,6 +54,7 @@ public class Config
         Console.WriteLine($"    Azure API Key:     {MaskKey(AzureApiKey)}");
         Console.WriteLine($"    Azure Region:      {AzureRegion}");
         Console.WriteLine($"    Max line length:   {MaxLineLength}");
+        Console.WriteLine($"    Cache max size:    {CacheMaxSizeMB}MB");
         Console.WriteLine();
         Console.WriteLine("  Uso acumulado:");
         Console.WriteLine($"    DeepL:     {DeepLCount:N0} / 500.000");
@@ -65,17 +67,21 @@ public class Config
     {
         Console.WriteLine("\n  Configuración de API Keys (Enter para mantener el valor actual):\n");
 
-        DeepLApiKey = Ask("  DeepL API Key", DeepLApiKey);
-        DeepLApiKey2 = Ask("  DeepL API Key 2 (opcional)", DeepLApiKey2);
-        GoogleApiKey = Ask("  Google Cloud API Key (opcional)", GoogleApiKey);
-        AzureApiKey = Ask("  Azure API Key (opcional)", AzureApiKey);
+        DeepLApiKey = Ask("DeepL API Key", DeepLApiKey);
+        DeepLApiKey2 = Ask("DeepL API Key 2 (opcional)", DeepLApiKey2);
+        GoogleApiKey = Ask("Google Cloud API Key (opcional)", GoogleApiKey);
+        AzureApiKey = Ask("Azure API Key (opcional)", AzureApiKey);
 
         if (!string.IsNullOrWhiteSpace(AzureApiKey))
-            AzureRegion = Ask("  Azure Region", AzureRegion);
+            AzureRegion = Ask("Azure Region", AzureRegion);
 
-        string maxLine = Ask("  Max line length", MaxLineLength.ToString());
+        string maxLine = Ask("Max line length", MaxLineLength.ToString());
         if (int.TryParse(maxLine, out int parsed) && parsed > 0)
             MaxLineLength = parsed;
+
+        string cacheSize = Ask("Cache max size (MB)", CacheMaxSizeMB.ToString());
+        if (int.TryParse(cacheSize, out int cacheParsed) && cacheParsed > 0)
+            CacheMaxSizeMB = cacheParsed;
 
         Save();
         Console.WriteLine("\n  Configuración guardada.\n");
@@ -93,7 +99,7 @@ public class Config
     private static string Ask(string prompt, string currentValue)
     {
         string display = string.IsNullOrWhiteSpace(currentValue) ? "(vacío)" : MaskKey(currentValue);
-        Console.Write($"  {prompt} [{display}]: ");
+        Console.Write($"    {prompt} [{display}]: ");
         string? input = Console.ReadLine()?.Trim();
         return string.IsNullOrEmpty(input) ? currentValue : input;
     }
