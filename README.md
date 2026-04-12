@@ -30,25 +30,25 @@ The program runs in four phases:
 Scans all game files, counts characters, and shows how much quota each endpoint has left:
 
 ```
-  Idiomas: English (en) → Español (es)
-  ¿Es correcto? (s/n): s
+  Languages: English (en) → Español (es)
+  Is this correct? (y/n): y
 
-  Analizando archivos...
+  Analyzing files...
 
-    Map001.json                  12,340 chars (2,100 en caché)
-    CommonEvents.json             3,200 chars (0 en caché)
-    Items.json                      890 chars (0 en caché)
+    Map001.json                  12,340 chars (2,100 cached)
+    CommonEvents.json             3,200 chars (0 cached)
+    Items.json                      890 chars (0 cached)
 
-    Total de cadenas:      1,245
-    Total de caracteres:   16,430
-    Ya en caché:           2,100
-    Por traducir:          14,330
+    Total strings:      1,245
+    Total characters:   16,430
+    Already cached:        2,100
+    To translate:          14,330
 
-  Cuota disponible:
-    DeepL Free #1: 425,000 chars libres
-    DeepL Free #2: 500,000 chars libres
+  Available quota:
+    DeepL Free #1: 425,000 chars remaining
+    DeepL Free #2: 500,000 chars remaining
 
-  ¿Continuar con la traducción? (s/n):
+  Continue with translation? (y/n):
 ```
 
 No API calls are made during this phase.
@@ -66,9 +66,9 @@ Translates all text in the copied files. Progress is shown in real time. If inte
 After translation, the program asks if you want to apply it to the game:
 
 ```
-  ¿Aplicar la traducción al juego? (s/n): s
-  Originales guardados en: data_original
-  Traducción aplicada. El juego arrancará traducido.
+  Apply the translation to the game? (y/n): y
+  Originals saved in: data_original
+  Translation applied. The game will start translated.
 ```
 
 This renames `data` → `data_original` (backup) and copies `data_{language}` → `data` (active). To revert to the original language, delete `data` and rename `data_original` back to `data`.
@@ -79,7 +79,7 @@ On first run for each game, RpgLingo scans the game files and generates a `gloss
 
 ```json
 [
-  { "Term": "Dark Knight", "Translation": "Caballero Oscuro", "Note": "Clase" },
+  { "Term": "Dark Knight", "Translation": "Caballero Oscuro", "Note": "Class" },
   { "Term": "Excalibur", "Translation": "Excalibur", "Note": "Arma" },
   { "Term": "Heal", "Translation": "Curar", "Note": "Habilidad" }
 ]
