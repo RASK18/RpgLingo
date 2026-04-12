@@ -351,9 +351,8 @@ static void CopyDirectory(string source, string dest)
 
 static void PrintHeader()
 {
-    Console.WriteLine();
-    Console.WriteLine("  ╔══════════════════════════════════╗");
-    Console.WriteLine("  ║          R P G L I N G O         ║");
-    Console.WriteLine("  ╚══════════════════════════════════╝");
+    Console.WriteLine("  ╔═══════════════════╗");
+    Console.WriteLine("  ║ ► RPG Lingo  v1.0 ║");
+    Console.WriteLine("  ╚═══════════════════╝");
     Console.WriteLine();
 }
