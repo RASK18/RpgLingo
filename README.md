@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="Logo.png" alt="RpgLingo" width="300">
+  <img src="Assets\Logo.png" alt="RpgLingo" width="300">
 </p>
 
 # RpgLingo
