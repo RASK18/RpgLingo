@@ -10,7 +10,7 @@ public class TranslationCache
     private readonly string _path;
     private readonly long _maxSizeBytes;
     private readonly int _saveInterval;
-    private Dictionary<string, string> _cache;
+    private readonly Dictionary<string, string> _cache;
     private int _hits;
     private int _misses;
     private int _newSinceLastSave;
@@ -29,7 +29,7 @@ public class TranslationCache
         {
             string json = File.ReadAllText(_path);
             _cache = JsonSerializer.Deserialize<Dictionary<string, string>>(json) ?? [];
-            Console.WriteLine($"  Caché cargada: {_cache.Count} entradas ({new FileInfo(_path).Length / 1024 / 1024}MB)");
+            Console.WriteLine($"  Cache loaded: {_cache.Count} entries ({new FileInfo(_path).Length / 1024 / 1024}MB)");
         }
         else
         {
@@ -59,7 +59,7 @@ public class TranslationCache
     }
 
     /// <summary>
-    /// Guardado silencioso periódico (sin mensajes en consola).
+    /// Silent periodic save (no console output).
     /// </summary>
     private void SaveQuiet()
     {
@@ -73,15 +73,13 @@ public class TranslationCache
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"    Aviso: No se pudo guardar caché periódica: {ex.Message}");
+            Console.WriteLine($"    Warning: Could not save periodic cache: {ex.Message}");
         }
     }
 
     public void Save()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-
-        // Comprobar si hay que podar la caché
         PruneIfNeeded();
 
         JsonSerializerOptions options = new() { WriteIndented = true };
@@ -89,25 +87,25 @@ public class TranslationCache
         _newSinceLastSave = 0;
 
         long sizeMB = new FileInfo(_path).Length / 1024 / 1024;
-        Console.WriteLine($"  Caché guardada: {_cache.Count} entradas ({sizeMB}MB) | hits: {_hits}, misses: {_misses}");
+        Console.WriteLine($"  Cache saved: {_cache.Count} entries ({sizeMB}MB) | hits: {_hits}, misses: {_misses}");
     }
 
     private void PruneIfNeeded()
     {
         if (_maxSizeBytes <= 0) return;
 
-        // Estimar tamaño actual
+        // Estimate current size
         long estimatedSize = _cache.Sum(kvp =>
             (long)(kvp.Key.Length + kvp.Value.Length) * 2 + 20); // UTF-16 + JSON overhead
 
         if (estimatedSize <= _maxSizeBytes) return;
 
-        // Eliminar las entradas más antiguas (las primeras del diccionario)
-        int toRemove = _cache.Count / 4; // Eliminar el 25%
+        // Remove oldest entries (first in dictionary)
+        int toRemove = _cache.Count / 4; // Remove 25%
         List<string> keysToRemove = _cache.Keys.Take(toRemove).ToList();
         foreach (string? key in keysToRemove)
             _cache.Remove(key);
 
-        Console.WriteLine($"  Caché podada: eliminadas {toRemove} entradas antiguas (límite: {_maxSizeBytes / 1024 / 1024}MB)");
+        Console.WriteLine($"  Cache pruned: removed {toRemove} old entries (limit: {_maxSizeBytes / 1024 / 1024}MB)");
     }
 }

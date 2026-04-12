@@ -51,14 +51,14 @@ public class Glossary
         int added = 0;
         HashSet<string> existingTerms = new(_entries.Select(e => e.Term), StringComparer.OrdinalIgnoreCase);
 
-        added += ScanObjectFile(Path.Combine(dataPath, "Actors.json"), ["name", "nickname"], "Personaje", existingTerms);
-        added += ScanObjectFile(Path.Combine(dataPath, "Classes.json"), ["name"], "Clase", existingTerms);
-        added += ScanObjectFile(Path.Combine(dataPath, "Skills.json"), ["name"], "Habilidad", existingTerms);
-        added += ScanObjectFile(Path.Combine(dataPath, "Items.json"), ["name"], "Objeto", existingTerms);
-        added += ScanObjectFile(Path.Combine(dataPath, "Weapons.json"), ["name"], "Arma", existingTerms);
-        added += ScanObjectFile(Path.Combine(dataPath, "Armors.json"), ["name"], "Armadura", existingTerms);
-        added += ScanObjectFile(Path.Combine(dataPath, "Enemies.json"), ["name"], "Enemigo", existingTerms);
-        added += ScanObjectFile(Path.Combine(dataPath, "States.json"), ["name"], "Estado", existingTerms);
+        added += ScanObjectFile(Path.Combine(dataPath, "Actors.json"), ["name", "nickname"], "Character", existingTerms);
+        added += ScanObjectFile(Path.Combine(dataPath, "Classes.json"), ["name"], "Class", existingTerms);
+        added += ScanObjectFile(Path.Combine(dataPath, "Skills.json"), ["name"], "Skill", existingTerms);
+        added += ScanObjectFile(Path.Combine(dataPath, "Items.json"), ["name"], "Item", existingTerms);
+        added += ScanObjectFile(Path.Combine(dataPath, "Weapons.json"), ["name"], "Weapon", existingTerms);
+        added += ScanObjectFile(Path.Combine(dataPath, "Armors.json"), ["name"], "Armor", existingTerms);
+        added += ScanObjectFile(Path.Combine(dataPath, "Enemies.json"), ["name"], "Enemy", existingTerms);
+        added += ScanObjectFile(Path.Combine(dataPath, "States.json"), ["name"], "State", existingTerms);
 
         if (added > 0)
             Save();
@@ -135,12 +135,12 @@ public class Glossary
         int filled = _entries.Count(e => !string.IsNullOrWhiteSpace(e.Translation));
         int empty = _entries.Count - filled;
 
-        Console.WriteLine($"  Glosario: {_entries.Count} términos ({filled} traducidos, {empty} pendientes)");
+        Console.WriteLine($"  Glossary: {_entries.Count} terms ({filled} translated, {empty} pending)");
 
         if (empty > 0)
         {
-            Console.WriteLine($"  Los términos sin traducción se dejarán como están.");
-            Console.WriteLine($"  Edita '{Path.GetFileName(_path)}' para añadir traducciones.");
+            Console.WriteLine($"  Terms without translation will be kept as-is.");
+            Console.WriteLine($"  Edit '{Path.GetFileName(_path)}' to add translations.");
         }
     }
 
@@ -150,12 +150,12 @@ public class Glossary
         foreach (GlossaryEntry? entry in entries)
         {
             string translation = string.IsNullOrWhiteSpace(entry.Translation)
-                ? "(pendiente)"
+                ? "(pending)"
                 : entry.Translation;
             Console.WriteLine($"    {entry.Term,-25} → {translation,-25} [{entry.Note}]");
         }
 
         if (_entries.Count > max)
-            Console.WriteLine($"    ... y {_entries.Count - max} más");
+            Console.WriteLine($"    ... and {_entries.Count - max} more");
     }
 }

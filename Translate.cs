@@ -17,7 +17,7 @@ public class Translate
     private readonly string _targetLang;
     private string? _context;
 
-    // Deduplicación de peticiones en la misma ejecución
+    // In-flight deduplication for the current run
     private readonly Dictionary<string, string> _inflight = [];
 
     public Translate(Config config)
@@ -27,7 +27,7 @@ public class Translate
         _sourceLang = config.SourceLanguage;
         _targetLang = config.TargetLanguage;
 
-        // Pre-crear clientes para cada endpoint
+        // Pre-create clients for each endpoint
         foreach (TranslationEndpoint ep in _endpoints)
         {
             string key = ep.ApiKey;
@@ -44,44 +44,43 @@ public class Translate
                         new AzureKeyCredential(key),
                         new Uri("https://api.cognitive.microsofttranslator.com/"),
                         ep.Region),
-                    _ => throw new NotSupportedException($"Servicio no soportado: {ep.Service}")
+                    _ => throw new NotSupportedException($"Unsupported service: {ep.Service}")
                 };
                 _clients[ClientKey(ep)] = client;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"    Aviso: No se pudo crear cliente para {ep.DisplayName}: {ex.Message}");
+                Console.WriteLine($"    Warning: Could not create client for {ep.DisplayName}: {ex.Message}");
             }
         }
     }
 
     private static string ClientKey(TranslationEndpoint ep) => $"{ep.Service}_{ep.ApiKey}";
 
-    public string? ToSpanish(string text)
+    public string? TranslateText(string text)
     {
         if (string.IsNullOrWhiteSpace(text) || text.All(c => !char.IsLetter(c)))
             return null;
 
-        // Deduplicación: si ya se tradujo este texto en esta ejecución
         if (_inflight.TryGetValue(text, out string? cached))
             return cached;
 
-        string result = TranslateWithRetry(() => TranslateSingle(text));
+        string result = ExecuteWithRetry(() => TranslateSingle(text));
         _inflight[text] = result;
         AppendContext(text);
         return result;
     }
 
     /// <summary>
-    /// Traduce múltiples textos en una sola llamada (batch).
-    /// Solo soportado por DeepL. Para otros servicios, traduce uno a uno.
+    /// Translates multiple texts in a single API call (batch).
+    /// Only supported by DeepL. Other services fall back to one-by-one.
     /// </summary>
-    public List<string?> ToSpanishBatch(List<string> texts)
+    public List<string?> TranslateTextBatch(List<string> texts)
     {
         if (texts.Count == 0) return [];
-        if (texts.Count == 1) return [ToSpanish(texts[0])];
+        if (texts.Count == 1) return [TranslateText(texts[0])];
 
-        // Filtrar textos que ya están en inflight o son vacíos
+        // Filter texts already in-flight or empty
         string?[] results = new string?[texts.Count];
         List<(int index, string text)> toTranslate = [];
 
@@ -98,7 +97,7 @@ public class Translate
 
         if (toTranslate.Count == 0) return results.ToList();
 
-        // Intentar batch con el primer endpoint DeepL disponible
+        // Try batch with the first available DeepL endpoint
         long totalChars = toTranslate.Sum(t => (long)t.text.Length);
         TranslationEndpoint? deepLEndpoint = _endpoints.FirstOrDefault(ep =>
             ep.Service == TranslationService.DeepL &&
@@ -108,8 +107,8 @@ public class Translate
         if (deepLEndpoint != null)
         {
             List<string> batchTexts = toTranslate.Select(t => t.text).ToList();
-            List<string> translations = TranslateWithRetry(() =>
-                TranslateDeepLBatch(batchTexts, deepLEndpoint));
+            List<string> translations = ExecuteWithRetry(() =>
+                ExecuteDeepLBatch(batchTexts, deepLEndpoint));
 
             for (int i = 0; i < toTranslate.Count; i++)
             {
@@ -120,9 +119,9 @@ public class Translate
         }
         else
         {
-            // Fallback: traducir uno a uno
+            // Fallback: translate one by one
             foreach ((int index, string text) in toTranslate)
-                results[index] = ToSpanish(text);
+                results[index] = TranslateText(text);
         }
 
         return results.ToList();
@@ -137,18 +136,18 @@ public class Translate
 
             return ep.Service switch
             {
-                TranslationService.DeepL => TranslateDeepL(text, ep),
-                TranslationService.Google => TranslateGoogle(text, ep),
-                TranslationService.Azure => TranslateAzure(text, ep),
+                TranslationService.DeepL => ExecuteDeepL(text, ep),
+                TranslationService.Google => ExecuteGoogle(text, ep),
+                TranslationService.Azure => ExecuteAzure(text, ep),
                 _ => throw new NotSupportedException()
             };
         }
 
         throw new InvalidOperationException(
-            "Todos los endpoints han alcanzado su límite o no hay endpoints configurados.");
+            "All endpoints have reached their limit or no endpoints are configured.");
     }
 
-    private static T TranslateWithRetry<T>(Func<T> translateFunc)
+    private static T ExecuteWithRetry<T>(Func<T> translateFunc)
     {
         for (int attempt = 0; attempt < MaxRetries; attempt++)
         {
@@ -159,13 +158,13 @@ public class Translate
             catch (DeepLException ex) when (attempt < MaxRetries - 1 && IsTooManyRequests(ex))
             {
                 int delay = BackoffScheduleMs[Math.Min(attempt, BackoffScheduleMs.Length - 1)];
-                Console.WriteLine($"    429 Too Many Requests. Esperando {delay / 1000.0:F1}s...");
+                Console.WriteLine($"    429 Too Many Requests. Waiting {delay / 1000.0:F1}s...");
                 Thread.Sleep(delay);
             }
             catch (Exception ex) when (attempt < MaxRetries - 1)
             {
                 int delay = BackoffScheduleMs[Math.Min(attempt, BackoffScheduleMs.Length - 1)];
-                Console.WriteLine($"    Reintento {attempt + 1}/{MaxRetries}: {ex.Message}");
+                Console.WriteLine($"    Retry {attempt + 1}/{MaxRetries}: {ex.Message}");
                 Thread.Sleep(delay);
             }
         }
@@ -179,7 +178,7 @@ public class Translate
 
     // ==================== DeepL ====================
 
-    private string TranslateDeepL(string text, TranslationEndpoint ep)
+    private string ExecuteDeepL(string text, TranslationEndpoint ep)
     {
         Translator client = (Translator)_clients[ClientKey(ep)];
         TextTranslateOptions opt = new()
@@ -199,10 +198,10 @@ public class Translate
     }
 
     /// <summary>
-    /// Traduce múltiples textos en una sola llamada a DeepL.
-    /// Hasta 50 textos por llamada (límite de la API).
+    /// Translates multiple texts in a single DeepL API call.
+    /// Up to 50 texts per call (API limit).
     /// </summary>
-    private List<string> TranslateDeepLBatch(List<string> texts, TranslationEndpoint ep)
+    private List<string> ExecuteDeepLBatch(List<string> texts, TranslationEndpoint ep)
     {
         Translator client = (Translator)_clients[ClientKey(ep)];
         TextTranslateOptions opt = new()
@@ -238,7 +237,7 @@ public class Translate
 
     // ==================== Google ====================
 
-    private string TranslateGoogle(string text, TranslationEndpoint ep)
+    private string ExecuteGoogle(string text, TranslationEndpoint ep)
     {
         TranslationClient client = (TranslationClient)_clients[ClientKey(ep)];
         TranslationResult result = client.TranslateText(text, _targetLang, _sourceLang);
@@ -251,7 +250,7 @@ public class Translate
 
     // ==================== Azure ====================
 
-    private string TranslateAzure(string text, TranslationEndpoint ep)
+    private string ExecuteAzure(string text, TranslationEndpoint ep)
     {
         TextTranslationClient client = (TextTranslationClient)_clients[ClientKey(ep)];
         Response<IReadOnlyList<TranslatedTextItem>> response = client.Translate(
@@ -265,7 +264,7 @@ public class Translate
         return response.Value.Single().Translations.Single().Text;
     }
 
-    // ==================== Contexto ====================
+    // ==================== Context ====================
 
     private void AppendContext(string text)
     {

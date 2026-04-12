@@ -12,10 +12,10 @@ public class TranslationEndpoint
 {
     public TranslationService Service { get; set; } = TranslationService.DeepL;
     public string ApiKey { get; set; } = "";
-    public string Region { get; set; } = "westeurope"; // Solo para Azure
+    public string Region { get; set; } = "westeurope"; // Azure only
     public long CharLimit { get; set; } = 500_000;
     public long CharsUsed { get; set; }
-    public string Label { get; set; } = ""; // Nombre opcional para identificarlo
+    public string Label { get; set; } = ""; // Optional friendly name
 
     public long CharsRemaining => Math.Max(0, CharLimit - CharsUsed);
     public bool HasQuota(long additionalChars) => CharsUsed + additionalChars < CharLimit;
@@ -26,7 +26,7 @@ public class TranslationEndpoint
 
     private static string MaskKey(string key)
     {
-        if (string.IsNullOrWhiteSpace(key)) return "sin key";
+        if (string.IsNullOrWhiteSpace(key)) return "no key";
         if (key.Length <= 8) return "****";
         return key[..4] + "..." + key[^4..];
     }
@@ -69,52 +69,52 @@ public class Config
 
     public void ShowSummary()
     {
-        Console.WriteLine("  Configuración actual:");
-        Console.WriteLine($"    Idioma origen:     {LanguageName(SourceLanguage)} ({SourceLanguage})");
-        Console.WriteLine($"    Idioma destino:    {LanguageName(TargetLanguage)} ({TargetLanguage})");
-        Console.WriteLine($"    Max line length:   {MaxLineLength}");
-        Console.WriteLine($"    Cache max size:    {CacheMaxSizeMB}MB");
+        Console.WriteLine("  Current configuration:");
+        Console.WriteLine($"    Source language:    {LanguageName(SourceLanguage)} ({SourceLanguage})");
+        Console.WriteLine($"    Target language:    {LanguageName(TargetLanguage)} ({TargetLanguage})");
+        Console.WriteLine($"    Max line length:    {MaxLineLength}");
+        Console.WriteLine($"    Cache max size:     {CacheMaxSizeMB}MB");
         Console.WriteLine();
 
         if (Endpoints.Count == 0)
         {
-            Console.WriteLine("    No hay endpoints configurados.");
+            Console.WriteLine("    No endpoints configured.");
             return;
         }
 
-        Console.WriteLine("  Endpoints (en orden de prioridad):");
+        Console.WriteLine("  Endpoints (in priority order):");
         for (int i = 0; i < Endpoints.Count; i++)
         {
             TranslationEndpoint ep = Endpoints[i];
             Console.WriteLine($"    [{i + 1}] {ep.DisplayName}");
-            Console.WriteLine($"        Servicio: {ep.Service} | Usado: {ep.CharsUsed:N0} / {ep.CharLimit:N0}");
+            Console.WriteLine($"        Service: {ep.Service} | Used: {ep.CharsUsed:N0} / {ep.CharLimit:N0}");
         }
     }
 
     public void RunSetupWizard()
     {
-        Console.WriteLine("\n  Configuración de endpoints de traducción:");
-        Console.WriteLine("  Los endpoints se usan en orden: el primero con cuota disponible se usa.\n");
+        Console.WriteLine("\n  Translation endpoint configuration:");
+        Console.WriteLine("  Endpoints are used in order: the first with available quota is used.\n");
 
         bool adding = true;
         while (adding)
         {
-            Console.WriteLine("  Endpoints actuales:");
+            Console.WriteLine("  Current endpoints:");
             if (Endpoints.Count == 0)
-                Console.WriteLine("    (ninguno)");
+                Console.WriteLine("    (none)");
             else
                 for (int i = 0; i < Endpoints.Count; i++)
                     Console.WriteLine($"    [{i + 1}] {Endpoints[i].DisplayName} ({Endpoints[i].Service})");
 
             Console.WriteLine();
-            Console.WriteLine("  [A] Añadir endpoint");
+            Console.WriteLine("  [A] Add endpoint");
             if (Endpoints.Count > 0)
             {
-                Console.WriteLine("  [D] Eliminar endpoint");
-                Console.WriteLine("  [R] Resetear contadores de uso");
+                Console.WriteLine("  [D] Delete endpoint");
+                Console.WriteLine("  [R] Reset usage counters");
             }
-            Console.WriteLine("  [G] Guardar y continuar");
-            Console.Write("  Opción: ");
+            Console.WriteLine("  [S] Save and continue");
+            Console.Write("  Option: ");
             string? opt = Console.ReadLine()?.Trim().ToUpper();
 
             switch (opt)
@@ -127,17 +127,17 @@ public class Config
                     break;
                 case "R" when Endpoints.Count > 0:
                     ResetCounters();
-                    Console.WriteLine("  Contadores reseteados.");
+                    Console.WriteLine("  Counters reset.");
                     break;
-                case "G":
+                case "S":
                     adding = false;
                     break;
             }
         }
 
-        Console.WriteLine("\n  Idiomas (código ISO 639-1, ej: en, es, ja, fr, de, pt, zh, ko):");
-        SourceLanguage = Ask("Idioma origen", SourceLanguage);
-        TargetLanguage = Ask("Idioma destino", TargetLanguage);
+        Console.WriteLine("\n  Languages (ISO 639-1 code, e.g.: en, es, ja, fr, de, pt, zh, ko):");
+        SourceLanguage = Ask("Source language", SourceLanguage);
+        TargetLanguage = Ask("Target language", TargetLanguage);
 
         string maxLine = Ask("Max line length", MaxLineLength.ToString());
         if (int.TryParse(maxLine, out int parsed) && parsed > 0)
@@ -148,16 +148,16 @@ public class Config
             CacheMaxSizeMB = cacheParsed;
 
         Save();
-        Console.WriteLine("\n  Configuración guardada.\n");
+        Console.WriteLine("\n  Configuration saved.\n");
     }
 
     private void AddEndpointWizard()
     {
-        Console.WriteLine("\n  Servicios disponibles:");
-        Console.WriteLine("    [1] DeepL       (500K chars/mes gratis)");
-        Console.WriteLine("    [2] Google      ($300 créditos gratis, 1 año)");
-        Console.WriteLine("    [3] Azure       (2M chars/mes gratis)");
-        Console.Write("  Servicio: ");
+        Console.WriteLine("\n  Available services:");
+        Console.WriteLine("    [1] DeepL       (500K chars/month free)");
+        Console.WriteLine("    [2] Google      ($300 free credits, 1 year)");
+        Console.WriteLine("    [3] Azure       (2M chars/month free)");
+        Console.Write("  Service: ");
         string? svc = Console.ReadLine()?.Trim();
 
         TranslationService service = svc switch
@@ -172,16 +172,16 @@ public class Config
         string apiKey = Console.ReadLine()?.Trim() ?? "";
         if (string.IsNullOrWhiteSpace(apiKey))
         {
-            Console.WriteLine("  Cancelado (key vacía).");
+            Console.WriteLine("  Cancelled (empty key).");
             return;
         }
 
         long defaultLimit = service == TranslationService.Azure ? 2_000_000 : 500_000;
-        string limitStr = Ask("Límite de caracteres", defaultLimit.ToString());
+        string limitStr = Ask("Character limit", defaultLimit.ToString());
         _ = long.TryParse(limitStr, out long limit);
         if (limit <= 0) limit = defaultLimit;
 
-        string label = Ask("Etiqueta (opcional)", "");
+        string label = Ask("Label (optional)", "");
 
         string region = "";
         if (service == TranslationService.Azure)
@@ -196,17 +196,17 @@ public class Config
             Region = region
         });
 
-        Console.WriteLine($"  Endpoint añadido: {Endpoints[^1].DisplayName}");
+        Console.WriteLine($"  Endpoint added: {Endpoints[^1].DisplayName}");
     }
 
     private void RemoveEndpointWizard()
     {
-        Console.Write("  Número de endpoint a eliminar: ");
+        Console.Write("  Endpoint number to remove: ");
         if (int.TryParse(Console.ReadLine()?.Trim(), out int idx) && idx >= 1 && idx <= Endpoints.Count)
         {
             string name = Endpoints[idx - 1].DisplayName;
             Endpoints.RemoveAt(idx - 1);
-            Console.WriteLine($"  Eliminado: {name}");
+            Console.WriteLine($"  Removed: {name}");
         }
     }
 
@@ -219,7 +219,7 @@ public class Config
 
     private static string Ask(string prompt, string currentValue)
     {
-        string display = string.IsNullOrWhiteSpace(currentValue) ? "(vacío)" : currentValue;
+        string display = string.IsNullOrWhiteSpace(currentValue) ? "(empty)" : currentValue;
         Console.Write($"    {prompt} [{display}]: ");
         string? input = Console.ReadLine()?.Trim();
         return string.IsNullOrEmpty(input) ? currentValue : input;

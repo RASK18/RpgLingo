@@ -3,18 +3,18 @@ using System.Text.RegularExpressions;
 namespace RpgLingo;
 
 /// <summary>
-/// Maneja todos los escape sequences de RPG Maker (colores, iconos, variables, nombres, etc.)
-/// reemplazándolos con placeholders unicode antes de traducir y restaurándolos después.
-/// También maneja saltos de línea con reposicionamiento proporcional.
+/// Handles all RPG Maker escape sequences (colors, icons, variables, names, etc.)
+/// by replacing them with unicode placeholders before translation and restoring them afterward.
+/// Also handles newlines with proportional repositioning.
 /// </summary>
 public static partial class ControlCodeHelper
 {
-    // Patrón que captura todos los control codes de RPG Maker:
+    // Pattern capturing all RPG Maker control codes:
     // \C[n], \N[n], \V[n], \I[n], \{, \}, \$, \!, \., \|, \>, \<, \^, etc.
-    // En JSON estos se representan como \\C[n], \\N[n], etc.
+    // In JSON these appear as \\C[n], \\N[n], etc.
     private static readonly Regex ControlCodeRegex = BuildControlCodeRegex();
 
-    // Patrones de variables de script y plugins de RPG Maker:
+    // Patterns for script variables and RPG Maker plugin constructs:
     // <tag:value>, <TAG[123]>, $gameVariables[n], _tv[\"name\"], set_npm(8,"x",0), etc.
 
     private const string TagPrefix = "⟦CC";
@@ -45,8 +45,8 @@ public static partial class ControlCodeHelper
     public record NewlineInfo(string Token, string Value, double RelativePosition);
 
     /// <summary>
-    /// Prepara el texto para traducción: extrae control codes, variables de script
-    /// y saltos de línea, los reemplaza con placeholders y devuelve el texto limpio.
+    /// Prepares text for translation: extracts control codes, script variables
+    /// and newlines, replaces them with placeholders, and returns the clean text.
     /// </summary>
     public static PreparedText Prepare(string input)
     {
@@ -55,7 +55,7 @@ public static partial class ControlCodeHelper
         List<string> scriptVars = [];
         List<NewlineInfo> newlines = [];
 
-        // Paso 1: Reemplazar variables de script con placeholders
+        // Step 1: Replace script variables with placeholders
         int svIndex = 0;
         text = ScriptVarRegex.Replace(text, match =>
         {
@@ -63,7 +63,7 @@ public static partial class ControlCodeHelper
             return $"{ScriptPrefix}{svIndex++}{TagSuffix}";
         });
 
-        // Paso 2: Reemplazar control codes con placeholders
+        // Step 2: Replace control codes with placeholders
         int ccIndex = 0;
         text = ControlCodeRegex.Replace(text, match =>
         {
@@ -71,13 +71,13 @@ public static partial class ControlCodeHelper
             return $"{TagPrefix}{ccIndex++}{TagSuffix}";
         });
 
-        // Paso 3: Extraer saltos de línea con posiciones relativas
+        // Step 3: Extract newlines with relative positions
         int nlIndex = 0;
         int textLengthWithoutNewlines = text.Replace("\\n", "").Replace("\n", "").Length;
 
         if (textLengthWithoutNewlines > 0)
         {
-            // Manejar \n literal (como aparece en JSON de RPG Maker)
+            // Handle literal \n (as it appears in RPG Maker JSON)
             Regex nlRegex = new(@"\\n|\n");
             int charsSoFar = 0;
             text = nlRegex.Replace(text, match =>
@@ -89,7 +89,7 @@ public static partial class ControlCodeHelper
 
                 string token = $"{NewlinePrefix}{nlIndex++}{NewlineSuffix}";
                 newlines.Add(new NewlineInfo(token, match.Value, Math.Clamp(relPos, 0, 1)));
-                return " "; // Reemplazar con espacio para traducción
+                return " "; // Replace with space for translation
             });
         }
 
@@ -99,28 +99,28 @@ public static partial class ControlCodeHelper
     }
 
     /// <summary>
-    /// Restaura los control codes y saltos de línea en el texto traducido.
-    /// Los saltos de línea se reinsertan en posiciones proporcionalmente equivalentes.
+    /// Restores control codes and newlines in the translated text.
+    /// Newlines are reinserted at proportionally equivalent positions.
     /// </summary>
     public static string Restore(string translated, PreparedText prepared)
     {
         string result = translated;
 
-        // Paso 1: Restaurar variables de script
+        // Step 1: Restore script variables
         for (int i = 0; i < prepared.ScriptVars.Count; i++)
         {
             string placeholder = $"{ScriptPrefix}{i}{TagSuffix}";
             result = result.Replace(placeholder, prepared.ScriptVars[i]);
         }
 
-        // Paso 2: Restaurar control codes
+        // Step 2: Restore control codes
         for (int i = 0; i < prepared.ControlCodes.Count; i++)
         {
             string placeholder = $"{TagPrefix}{i}{TagSuffix}";
             result = result.Replace(placeholder, prepared.ControlCodes[i]);
         }
 
-        // Paso 3: Reinsertar saltos de línea en posiciones proporcionales
+        // Step 3: Reinsert newlines at proportional positions
         if (prepared.Newlines.Count > 0)
         {
             result = ReinsertNewlines(result, prepared.Newlines);
@@ -130,7 +130,7 @@ public static partial class ControlCodeHelper
     }
 
     /// <summary>
-    /// Elimina todos los control codes y variables de script del texto.
+    /// Strips all control codes and script variables from text.
     /// </summary>
     public static string Strip(string input)
     {
@@ -139,7 +139,7 @@ public static partial class ControlCodeHelper
     }
 
     /// <summary>
-    /// Comprueba si el texto contiene algún control code o variable de script.
+    /// Checks whether the text contains any control codes or script variables.
     /// </summary>
     public static bool HasControlCodes(string input)
     {
@@ -151,7 +151,7 @@ public static partial class ControlCodeHelper
         if (string.IsNullOrEmpty(text) || newlines.Count == 0)
             return text;
 
-        // Ordenar por posición relativa
+        // Sort by relative position
         List<NewlineInfo> sorted = newlines.OrderBy(n => n.RelativePosition).ToList();
         int insertedOffset = 0;
 
@@ -160,11 +160,11 @@ public static partial class ControlCodeHelper
             int targetIndex = (int)Math.Round(text.Length * nl.RelativePosition) + insertedOffset;
             targetIndex = Math.Clamp(targetIndex, 0, text.Length);
 
-            // Buscar el espacio más cercano para no cortar palabras
+            // Find nearest space to avoid splitting words
             int bestIndex = FindNearestSpace(text, targetIndex);
             if (bestIndex >= 0 && bestIndex < text.Length)
             {
-                // Reemplazar el espacio con el salto de línea original
+                // Replace the space with the original newline
                 text = text[..bestIndex] + nl.Value + text[(bestIndex + 1)..];
                 insertedOffset += nl.Value.Length - 1;
             }
@@ -177,7 +177,7 @@ public static partial class ControlCodeHelper
     {
         if (targetIndex >= text.Length) return text.Length - 1;
 
-        // Buscar hacia adelante y hacia atrás
+        // Search forward and backward
         int forward = -1, backward = -1;
 
         for (int i = targetIndex; i < text.Length; i++)

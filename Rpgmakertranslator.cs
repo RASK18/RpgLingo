@@ -26,7 +26,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
     public SessionStats Stats => _stats;
 
-    // ==================== Archivos de diálogos (Maps, CommonEvents) ====================
+    // ==================== Dialog files (Maps, CommonEvents) ====================
 
     public bool TranslateDialogFile(string filePath)
     {
@@ -39,7 +39,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         JsonNode? root = JsonNode.Parse(json);
         if (root == null) return false;
 
-        // Maps tienen "events", CommonEvents es un array directo
+        // Maps have "events", CommonEvents is a direct array
         if (root is JsonObject obj && obj.ContainsKey("events"))
             TranslateEvents(obj["events"]!.AsArray());
         else if (root is JsonArray arr)
@@ -47,7 +47,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
         File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
         MarkAsTranslated(filePath);
-        Console.WriteLine($"  Traducidos: {_translated} | Omitidos: {_skipped}");
+        Console.WriteLine($"  Translated: {_translated} | Skipped: {_skipped}");
         return true;
     }
 
@@ -92,14 +92,14 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
             switch (code)
             {
-                case 401: // Diálogo: agrupar líneas consecutivas
+                case 401: // Dialog: group consecutive lines
                     i = TranslateDialogBlock(list, i);
                     break;
-                case 102: // Opciones de elección
+                case 102: // Choices
                     TranslateChoices(cmd);
                     i++;
                     break;
-                case 402: // Respuesta de elección
+                case 402: // Choice answer
                     TranslateChoiceAnswer(cmd);
                     i++;
                     break;
@@ -114,12 +114,12 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
     }
 
     /// <summary>
-    /// Agrupa líneas consecutivas con el mismo code (401 o 405),
-    /// las traduce como un bloque y redistribuye el resultado.
+    /// Groups consecutive lines with the same code (401 or 405),
+    /// translates them as a block and redistributes the result.
     /// </summary>
     private int TranslateDialogBlock(JsonArray list, int startIndex, int targetCode = 401)
     {
-        // Recopilar todas las líneas consecutivas
+        // Collect all consecutive lines
         List<string> lines = [];
         int i = startIndex;
         while (i < list.Count)
@@ -135,7 +135,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
         if (lines.Count == 0) return i;
 
-        // Unir líneas y preparar control codes
+        // Join lines and prepare control codes
         string combined = string.Join(" ", lines);
         ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(combined);
 
@@ -146,7 +146,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
             return i;
         }
 
-        // Traducir (con caché)
+        // Translate (with cache)
         string translated = TranslateText(prepared);
         if (translated == combined)
         {
@@ -154,10 +154,10 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
             return i;
         }
 
-        // Redistribuir en líneas que quepan en la ventana de diálogo
+        // Redistribute into lines that fit the dialog window
         List<string> newLines = WrapTextOptimal(translated, maxLineLength);
 
-        // Actualizar las líneas existentes y añadir/eliminar según sea necesario
+        // Update existing lines and add/remove as needed
         int originalCount = lines.Count;
         JsonNode templateCmd = list[startIndex]!.Deserialize<JsonNode>()!;
 
@@ -167,22 +167,22 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
             if (j < newLines.Count && j < originalCount)
             {
-                // Actualizar línea existente
+                // Update existing line
                 list[listIndex]!["parameters"]![0] = JsonValue.Create(newLines[j]);
                 _translated++;
             }
             else if (j >= originalCount)
             {
-                // Necesitamos más líneas: insertar nuevos nodos
+                // Need more lines: insert new nodes
                 JsonNode newCmd = templateCmd.Deserialize<JsonNode>()!;
                 newCmd["parameters"]![0] = JsonValue.Create(newLines[j]);
                 list.Insert(listIndex, newCmd);
                 _translated++;
-                i++; // Ajustar el índice de salida
+                i++; // Adjust the output index
             }
             else
             {
-                // Sobran líneas originales: poner vacías
+                // Extra original lines: set to empty
                 list[listIndex]!["parameters"]![0] = JsonValue.Create("");
                 _skipped++;
             }
@@ -197,7 +197,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         JsonArray? choices = cmd["parameters"]?[0]?.AsArray();
         if (choices == null) return;
 
-        // Batch: recoger todos los choices y traducir de una vez
+        // Batch: collect all choices and translate at once
         List<string> textsToTranslate = [];
         List<int> indices = [];
 
@@ -236,7 +236,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         _translated++;
     }
 
-    // ==================== Archivos de objetos (Items, Weapons, etc.) ====================
+    // ==================== Object files (Items, Weapons, etc.) ====================
 
     public bool TranslateObjectFile(string filePath)
     {
@@ -249,7 +249,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         JsonArray? root = JsonNode.Parse(json)?.AsArray();
         if (root == null) return false;
 
-        // Batch: recoger todos los textos, traducirlos y aplicarlos
+        // Batch: collect all texts, translate and apply them
         List<(JsonNode node, string field, bool neatly)> fieldsToTranslate = [];
 
         foreach (JsonNode? item in root)
@@ -265,7 +265,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
             }
         }
 
-        // Extraer textos para batch
+        // Extract texts for batch
         List<string> textsForBatch = fieldsToTranslate
             .Select(f => f.node[f.field]!.GetValue<string>())
             .ToList();
@@ -290,15 +290,15 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
         File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
         MarkAsTranslated(filePath);
-        Console.WriteLine($"  Traducidos: {_translated} | Omitidos: {_skipped}");
+        Console.WriteLine($"  Translated: {_translated} | Skipped: {_skipped}");
         return true;
     }
 
-    // ==================== Archivos genéricos (plugins custom) ====================
+    // ==================== Generic files (custom plugins) ====================
 
     /// <summary>
-    /// Traduce recursivamente todos los valores string que correspondan a las claves indicadas.
-    /// Útil para archivos de plugins con estructura variable (GalleryList, etc.).
+    /// Recursively translates all string values matching the given keys.
+    /// Useful for plugin files with variable structure (GalleryList, etc.).
     /// </summary>
     public bool TranslateGenericFile(string filePath, HashSet<string> keysToTranslate)
     {
@@ -315,7 +315,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
         File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
         MarkAsTranslated(filePath);
-        Console.WriteLine($"  Traducidos: {_translated} | Omitidos: {_skipped}");
+        Console.WriteLine($"  Translated: {_translated} | Skipped: {_skipped}");
         return true;
     }
 
@@ -364,7 +364,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
         TranslateFieldSimple(root, "gameTitle");
 
-        // terms.messages contiene los mensajes del sistema
+        // terms.messages contains system messages
         JsonNode? messages = root["terms"]?["messages"];
         if (messages is JsonObject msgObj)
         {
@@ -380,7 +380,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
             }
         }
 
-        // terms.basic y terms.commands
+        // terms.basic and terms.commands
         TranslateStringArray(root["terms"]?["basic"]);
         TranslateStringArray(root["terms"]?["commands"]);
 
@@ -392,11 +392,11 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
         File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
         MarkAsTranslated(filePath);
-        Console.WriteLine($"  Traducidos: {_translated} | Omitidos: {_skipped}");
+        Console.WriteLine($"  Translated: {_translated} | Skipped: {_skipped}");
         return true;
     }
 
-    // ==================== Conteo de caracteres (dry run) ====================
+    // ==================== Character counting (dry run) ====================
 
     public record CharCount(long Total, long Cached, long ToTranslate, int Strings);
 
@@ -554,17 +554,17 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         public CharCount Result => new(_total, _cached, _total - _cached, _strings);
     }
 
-    // ==================== Utilidades de traducción ====================
+    // ==================== Translation utilities ====================
 
     /// <summary>
-    /// Traduce un texto ya preparado con ControlCodeHelper.
+    /// Translates a text already prepared with ControlCodeHelper.
     /// </summary>
     private string TranslateText(ControlCodeHelper.PreparedText prepared)
     {
         string leadingSpace = prepared.Original.Length > 0 && prepared.Original[0] == ' ' ? " " : "";
         string cleanText = prepared.TextForTranslation;
 
-        // Rastrear control codes y script vars detectados
+        // Track detected control codes and script vars
         _stats.ControlCodesDetected += prepared.ControlCodes.Count;
         _stats.ScriptVarsDetected += prepared.ScriptVars.Count;
 
@@ -574,7 +574,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
             return leadingSpace + ControlCodeHelper.Restore(cached, prepared);
         }
 
-        // Aplicar glosario
+        // Apply glossary
         string textForApi = _glossary != null
             ? _glossary.ApplyBeforeTranslation(cleanText)
             : cleanText;
@@ -582,23 +582,23 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         string? result;
         try
         {
-            result = _translate.ToSpanish(textForApi);
+            result = _translate.TranslateText(textForApi);
         }
         catch (Exception ex)
         {
             _stats.AddFailure();
-            Console.WriteLine($"    Error traduciendo: {ex.Message}");
+            Console.WriteLine($"    Translation error: {ex.Message}");
             return prepared.Original;
         }
 
         if (result == null)
             return prepared.Original;
 
-        // Restaurar glosario
+        // Restore glossary
         if (_glossary != null)
             result = _glossary.ApplyAfterTranslation(result);
 
-        // Preservar mayúsculas/minúsculas
+        // Preserve upper/lowercase
         if (cleanText.Length > 0 && result.Length > 0)
         {
             if (char.IsLower(cleanText[0]) && char.IsUpper(result[0]))
@@ -613,21 +613,21 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
     }
 
     /// <summary>
-    /// Traduce un batch de textos usando la API batch cuando es posible.
+    /// Translates a batch of texts using the batch API when possible.
     /// </summary>
     private List<string?> TranslateTextBatch(List<string> texts)
     {
         List<ControlCodeHelper.PreparedText> prepared = texts.Select(ControlCodeHelper.Prepare).ToList();
         List<string> cleanTexts = prepared.Select(p => p.TextForTranslation).ToList();
 
-        // Rastrear control codes y script vars
+        // Track control codes and script vars
         foreach (ControlCodeHelper.PreparedText? p in prepared)
         {
             _stats.ControlCodesDetected += p.ControlCodes.Count;
             _stats.ScriptVarsDetected += p.ScriptVars.Count;
         }
 
-        // Separar textos cacheados de los que necesitan API
+        // Separate cached texts from those needing API
         string?[] results = new string?[texts.Count];
         List<(int index, string text)> toTranslate = [];
 
@@ -659,11 +659,11 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         List<string?> apiResults;
         try
         {
-            apiResults = _translate.ToSpanishBatch(apiTexts);
+            apiResults = _translate.TranslateTextBatch(apiTexts);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"    Error en batch: {ex.Message}");
+            Console.WriteLine($"    Batch error: {ex.Message}");
             _stats.AddFailure();
             return results.ToList();
         }
@@ -753,11 +753,11 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         }
     }
 
-    // ==================== WrapText con programación dinámica ====================
+    // ==================== WrapText with dynamic programming ====================
 
     /// <summary>
-    /// Distribuye texto en líneas minimizando el espacio sobrante (cubo).
-    /// Produce líneas más equilibradas que el algoritmo greedy.
+    /// Distributes text into lines minimizing leftover space (cubic penalty).
+    /// Produces more balanced lines than the greedy algorithm.
     /// </summary>
     private static List<string> WrapTextOptimal(string text, int maxLength)
     {
@@ -786,7 +786,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
                 if (extraSpace < 0)
                     cost = double.MaxValue;
                 else if (j == n && extraSpace >= 0)
-                    cost = 0; // Última línea no penaliza
+                    cost = 0; // Last line has no penalty
                 else
                     cost = (double)extraSpace * extraSpace * extraSpace;
 
@@ -799,7 +799,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
             }
         }
 
-        // Reconstruir líneas
+        // Reconstruct lines
         List<string> lines = [];
         ReconstructLines(words, n, breakPoints, lines);
         return lines.Count > 0 ? lines : [""];
@@ -813,7 +813,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         lines.Add(string.Join(' ', words[(i - 1)..j]));
     }
 
-    // ==================== Control de archivos ya traducidos ====================
+    // ==================== Already-translated file tracking ====================
 
     private static readonly string TranslatedMarkerDir = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -824,7 +824,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         string marker = GetMarkerPath(filePath);
         if (!File.Exists(marker)) return false;
 
-        Console.WriteLine($"  Saltando (ya traducido): {Path.GetFileName(filePath)}");
+        Console.WriteLine($"  Skipping (already translated): {Path.GetFileName(filePath)}");
         _stats.FilesSkipped++;
         return true;
     }
@@ -838,8 +838,8 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
     }
 
     /// <summary>
-    /// Genera un path de marcador único basado en la ruta completa del archivo.
-    /// Así cada juego tiene sus propios marcadores.
+    /// Generates a unique marker path based on the full file path.
+    /// Each game gets its own set of markers.
     /// </summary>
     private static string GetMarkerPath(string filePath)
     {
@@ -850,7 +850,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
     }
 
     /// <summary>
-    /// Limpia los marcadores para forzar retraducción.
+    /// Clears markers to force retranslation.
     /// </summary>
     public static void ClearTranslationMarkers()
     {

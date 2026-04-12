@@ -3,7 +3,7 @@ using System.Diagnostics;
 namespace RpgLingo;
 
 /// <summary>
-/// Rastrea estadísticas de la sesión de traducción actual.
+/// Tracks statistics for the current translation session.
 /// </summary>
 public class SessionStats
 {
@@ -52,37 +52,37 @@ public class SessionStats
     {
         Console.WriteLine();
         Console.WriteLine("  ╔══════════════════════════════════════╗");
-        Console.WriteLine("  ║       Estadísticas de sesión         ║");
+        Console.WriteLine("  ║         Session statistics           ║");
         Console.WriteLine("  ╚══════════════════════════════════════╝");
         Console.WriteLine();
-        Console.WriteLine($"    Tiempo total:          {Elapsed:hh\\:mm\\:ss}");
-        Console.WriteLine($"    Archivos procesados:   {FilesProcessed}");
-        Console.WriteLine($"    Archivos saltados:     {FilesSkipped}");
+        Console.WriteLine($"    Total time:            {Elapsed:hh\\:mm\\:ss}");
+        Console.WriteLine($"    Files processed:       {FilesProcessed}");
+        Console.WriteLine($"    Files skipped:         {FilesSkipped}");
         Console.WriteLine();
-        Console.WriteLine($"    Traducciones:          {Translations:N0}");
+        Console.WriteLine($"    Translations:          {Translations:N0}");
         Console.WriteLine($"    Cache hits:            {CacheHits:N0}");
-        Console.WriteLine($"    Fallos:                {Failures:N0}");
+        Console.WriteLine($"    Failures:              {Failures:N0}");
         Console.WriteLine();
-        Console.WriteLine($"    Caracteres traducidos: {CharactersTranslated:N0}");
-        Console.WriteLine($"    Caracteres de caché:   {CharactersCached:N0}");
+        Console.WriteLine($"    Characters translated: {CharactersTranslated:N0}");
+        Console.WriteLine($"    Characters from cache: {CharactersCached:N0}");
         Console.WriteLine();
-        Console.WriteLine($"    Llamadas API:          {ApiCalls:N0}");
-        Console.WriteLine($"    Llamadas batch:        {BatchApiCalls:N0}");
+        Console.WriteLine($"    API calls:             {ApiCalls:N0}");
+        Console.WriteLine($"    Batch API calls:       {BatchApiCalls:N0}");
         Console.WriteLine();
         Console.WriteLine($"    Control codes:         {ControlCodesDetected:N0}");
-        Console.WriteLine($"    Variables de script:   {ScriptVarsDetected:N0}");
+        Console.WriteLine($"    Script variables:      {ScriptVarsDetected:N0}");
 
         if (Translations + CacheHits > 0)
         {
             double hitRate = (double)CacheHits / (Translations + CacheHits) * 100;
             Console.WriteLine();
-            Console.WriteLine($"    Tasa de caché:         {hitRate:F1}%");
+            Console.WriteLine($"    Cache hit rate:        {hitRate:F1}%");
         }
 
         if (Elapsed.TotalSeconds > 0 && Translations > 0)
         {
             double charsPerSec = CharactersTranslated / Elapsed.TotalSeconds;
-            Console.WriteLine($"    Velocidad:             {charsPerSec:F0} chars/s");
+            Console.WriteLine($"    Speed:                 {charsPerSec:F0} chars/s");
         }
     }
 }

@@ -1,6 +1,5 @@
 using RpgLingo;
 
-// ==================== Detectar rutas automáticamente ====================
 string exeDir = AppContext.BaseDirectory;
 string wwwDir = Path.Combine(exeDir, "www");
 string dataPath = Path.Combine(wwwDir, "data");
@@ -12,136 +11,136 @@ Console.WriteLine("  ║          R P G L I N G O         ║");
 Console.WriteLine("  ╚══════════════════════════════════╝");
 Console.WriteLine();
 
-// ==================== Detectar datos del juego ====================
-// Si ya se aplicó una traducción antes, los originales están en data_original
+// ==================== Detect game data ====================
+// If a translation was already applied, originals are in data_original
 string gamePath = Directory.Exists(dataOriginalPath) ? dataOriginalPath : dataPath;
 
 if (!Directory.Exists(gamePath))
 {
-    Console.WriteLine($"  No se ha encontrado la carpeta del juego:");
+    Console.WriteLine($"  Game data folder not found:");
     Console.WriteLine($"  {dataPath}");
     Console.WriteLine();
-    Console.WriteLine("  Coloca RpgLingo.exe en la carpeta raíz del juego");
-    Console.WriteLine("  (donde está Game.exe) y vuelve a ejecutar.");
+    Console.WriteLine("  Place RpgLingo.exe in the game's root folder");
+    Console.WriteLine("  (where Game.exe is) and run again.");
     Console.ReadKey();
     return;
 }
 
-Console.WriteLine($"  Datos originales en: {gamePath}");
+Console.WriteLine($"  Original data in: {gamePath}");
 Console.WriteLine();
 
-// ==================== Cargar configuración ====================
+// ==================== Load configuration ====================
 Config config = Config.Load();
 
 if (!config.HasAnyEndpoint())
 {
-    Console.WriteLine("  No hay endpoints configurados. Necesitas al menos uno.\n");
+    Console.WriteLine("  No endpoints configured. You need at least one.\n");
     config.RunSetupWizard();
 }
 else
 {
     config.ShowSummary();
     Console.WriteLine();
-    Console.Write("  ¿Quieres cambiar la configuración? (s/n): ");
-    if (Console.ReadLine()?.Trim().ToLower() == "s")
+    Console.Write("  Change configuration? (y/n): ");
+    if (Console.ReadLine()?.Trim().ToLower() == "y")
         config.RunSetupWizard();
 }
 
 if (!config.HasAnyEndpoint())
 {
-    Console.WriteLine("  No se ha configurado ningún endpoint. Saliendo.");
+    Console.WriteLine("  No endpoints configured. Exiting.");
     Console.ReadKey();
     return;
 }
 
-// ==================== Confirmar idiomas ====================
+// ==================== Confirm languages ====================
 string sourceLang = config.SourceLanguage;
 string targetLang = config.TargetLanguage;
 string savedSourceLang = sourceLang;
 string savedTargetLang = targetLang;
 
-Console.WriteLine($"  Idiomas: {Config.LanguageName(sourceLang)} ({sourceLang}) → {Config.LanguageName(targetLang)} ({targetLang})");
-Console.Write("  ¿Es correcto? (s/n): ");
+Console.WriteLine($"  Languages: {Config.LanguageName(sourceLang)} ({sourceLang}) → {Config.LanguageName(targetLang)} ({targetLang})");
+Console.Write("  Is this correct? (y/n): ");
 if (Console.ReadLine()?.Trim().ToLower() == "n")
 {
-    Console.Write($"    Idioma origen [{sourceLang}]: ");
+    Console.Write($"    Source language [{sourceLang}]: ");
     string? newSource = Console.ReadLine()?.Trim().ToLower();
     if (!string.IsNullOrEmpty(newSource))
         sourceLang = newSource;
 
-    Console.Write($"    Idioma destino [{targetLang}]: ");
+    Console.Write($"    Target language [{targetLang}]: ");
     string? newTarget = Console.ReadLine()?.Trim().ToLower();
     if (!string.IsNullOrEmpty(newTarget))
         targetLang = newTarget;
 
-    Console.WriteLine($"\n  Nuevo: {Config.LanguageName(sourceLang)} ({sourceLang}) → {Config.LanguageName(targetLang)} ({targetLang})");
-    Console.Write("  ¿Guardar como idiomas por defecto? (s/n): ");
-    if (Console.ReadLine()?.Trim().ToLower() == "s")
+    Console.WriteLine($"\n  New: {Config.LanguageName(sourceLang)} ({sourceLang}) → {Config.LanguageName(targetLang)} ({targetLang})");
+    Console.Write("  Save as default languages? (y/n): ");
+    if (Console.ReadLine()?.Trim().ToLower() == "y")
     {
         savedSourceLang = sourceLang;
         savedTargetLang = targetLang;
-        Console.WriteLine("  Guardado como predeterminado.");
+        Console.WriteLine("  Saved as default.");
     }
     else
     {
-        Console.WriteLine("  Se usará solo para esta ejecución.");
+        Console.WriteLine("  Will be used for this session only.");
     }
 }
 
 config.SourceLanguage = sourceLang;
 config.TargetLanguage = targetLang;
 
-// ==================== Rutas de salida (dependen del idioma) ====================
+// ==================== Output paths (depend on language) ====================
 string outputPath = Path.Combine(wwwDir, $"data_{targetLang}");
-Console.WriteLine($"  Salida en: {outputPath}");
+Console.WriteLine($"  Output in: {outputPath}");
 
-// ==================== Opción de forzar retraducción ====================
+// ==================== Retranslation option ====================
 if (Directory.Exists(outputPath))
 {
     Console.WriteLine();
-    Console.WriteLine($"  Se ha encontrado una traducción previa (data_{targetLang}).");
-    Console.WriteLine("  [1] Continuar donde se quedó (saltar archivos ya traducidos)");
-    Console.WriteLine("  [2] Volver a traducir todo desde cero");
-    Console.Write("  Opción: ");
-    string? opcion = Console.ReadLine()?.Trim();
+    Console.WriteLine($"  Previous translation found (data_{targetLang}).");
+    Console.WriteLine("  [1] Continue where it left off (skip already translated files)");
+    Console.WriteLine("  [2] Retranslate everything from scratch");
+    Console.Write("  Option: ");
+    string? option = Console.ReadLine()?.Trim();
 
-    if (opcion == "2")
+    if (option == "2")
     {
         RpgMakerTranslator.ClearTranslationMarkers();
         Directory.Delete(outputPath, true);
-        Console.WriteLine("  Marcadores limpiados. Se retraducirá todo.");
+        Console.WriteLine("  Markers cleared. Full retranslation will begin.");
     }
 }
 
-// ==================== Inicializar ====================
+// ==================== Initialize ====================
 TranslationCache cache = new(maxSizeMB: config.CacheMaxSizeMB);
 Translate translate = new(config);
 
-// ==================== Glosario ====================
+// ==================== Glossary ====================
 string glossaryPath = Path.Combine(exeDir, "glossary.json");
 Glossary glossary = new(glossaryPath);
 
 if (glossary.Count == 0)
 {
-    Console.WriteLine("\n  No se ha encontrado glosario. Generando desde los archivos del juego...");
+    Console.WriteLine("\n  No glossary found. Generating from game files...");
     int added = glossary.AutoPopulate(gamePath);
-    Console.WriteLine($"  Se han encontrado {added} términos (nombres, objetos, habilidades, etc.).");
-    Console.WriteLine($"  Guardado en: {glossaryPath}");
+    Console.WriteLine($"  Found {added} terms (names, items, skills, etc.).");
+    Console.WriteLine($"  Saved to: {glossaryPath}");
     Console.WriteLine();
-    Console.WriteLine("  Puedes editar 'glossary.json' para añadir las traducciones que desees.");
-    Console.WriteLine("  Los términos sin traducción se dejarán como están en el original.");
-    Console.WriteLine("  Ejemplo:");
-    Console.WriteLine("    { \"Term\": \"Dark Knight\", \"Translation\": \"Caballero Oscuro\", \"Note\": \"Clase\" }");
+    Console.WriteLine("  You can edit 'glossary.json' to add translations.");
+    Console.WriteLine("  Terms without a translation will be kept as-is.");
+    Console.WriteLine("  Example:");
+    Console.WriteLine("    { \"Term\": \"Dark Knight\", \"Translation\": \"Caballero Oscuro\", \"Note\": \"Class\" }");
     Console.WriteLine();
 
     if (added > 0)
     {
         glossary.ShowEntries(10);
         Console.WriteLine();
-        Console.Write("  ¿Quieres editar el glosario antes de continuar? (s/n): ");
-        if (Console.ReadLine()?.Trim().ToLower() == "s")
+        Console.Write("  Edit the glossary before continuing? (y/n): ");
+        if (Console.ReadLine()?.Trim().ToLower() == "y")
         {
-            Console.WriteLine($"\n  Edita el archivo y vuelve a ejecutar RpgLingo.");
+            Console.WriteLine($"\n  Edit the file and run RpgLingo again.");
             Console.ReadKey();
             return;
         }
@@ -167,8 +166,8 @@ string[] dialogFiles = Directory.GetFiles(gamePath)
 string[] objectFileNames = ["Items.json", "Weapons.json", "Armors.json", "Skills.json",
                              "Enemies.json", "Classes.json", "States.json"];
 
-// ==================== Fase 1: Conteo de caracteres ====================
-Console.WriteLine("\n  Analizando archivos...\n");
+// ==================== Phase 1: Character counting ====================
+Console.WriteLine("\n  Analyzing files...\n");
 
 long totalChars = 0, cachedChars = 0, toTranslateChars = 0;
 int totalStrings = 0;
@@ -180,7 +179,7 @@ void AddCount(string label, RpgMakerTranslator.CharCount count)
     toTranslateChars += count.ToTranslate;
     totalStrings += count.Strings;
     if (count.Total > 0)
-        Console.WriteLine($"    {label,-25} {count.Total,8:N0} chars ({count.Cached:N0} en caché)");
+        Console.WriteLine($"    {label,-25} {count.Total,8:N0} chars ({count.Cached:N0} cached)");
 }
 
 foreach (string file in dialogFiles)
@@ -198,44 +197,44 @@ if (File.Exists(systemPath))
     AddCount("System.json", translator.CountSystemFile(systemPath));
 
 Console.WriteLine();
-Console.WriteLine($"    Total de cadenas:      {totalStrings:N0}");
-Console.WriteLine($"    Total de caracteres:   {totalChars:N0}");
-Console.WriteLine($"    Ya en caché:           {cachedChars:N0}");
-Console.WriteLine($"    Por traducir:          {toTranslateChars:N0}");
+Console.WriteLine($"    Total strings:         {totalStrings:N0}");
+Console.WriteLine($"    Total characters:      {totalChars:N0}");
+Console.WriteLine($"    Already cached:        {cachedChars:N0}");
+Console.WriteLine($"    To translate:          {toTranslateChars:N0}");
 Console.WriteLine();
 
-Console.WriteLine("  Cuota disponible:");
+Console.WriteLine("  Available quota:");
 foreach (TranslationEndpoint ep in config.Endpoints)
-    Console.WriteLine($"    {ep.DisplayName}: {ep.CharsRemaining:N0} chars libres");
+    Console.WriteLine($"    {ep.DisplayName}: {ep.CharsRemaining:N0} chars remaining");
 Console.WriteLine();
 
 if (toTranslateChars == 0)
 {
-    Console.WriteLine("  No hay nada nuevo que traducir. Todo está en caché.");
+    Console.WriteLine("  Nothing new to translate. Everything is cached.");
     Console.ReadKey();
     return;
 }
 
-Console.Write("  ¿Continuar con la traducción? (s/n): ");
-if (Console.ReadLine()?.Trim().ToLower() != "s")
+Console.Write("  Continue with translation? (y/n): ");
+if (Console.ReadLine()?.Trim().ToLower() != "y")
 {
-    Console.WriteLine("  Cancelado.");
+    Console.WriteLine("  Cancelled.");
     Console.ReadKey();
     return;
 }
 
-// ==================== Fase 2: Copia de seguridad ====================
+// ==================== Phase 2: Backup ====================
 if (!Directory.Exists(outputPath))
 {
     CopyDirectory(gamePath, outputPath);
-    Console.WriteLine($"\n  Copia creada en: {outputPath}\n");
+    Console.WriteLine($"\n  Copy created in: {outputPath}\n");
 }
 else
 {
-    Console.WriteLine($"\n  Usando copia existente: {outputPath}\n");
+    Console.WriteLine($"\n  Using existing copy: {outputPath}\n");
 }
 
-// ==================== Fase 3: Traducción ====================
+// ==================== Phase 3: Translation ====================
 foreach (string file in dialogFiles)
 {
     string outFile = Path.Combine(outputPath, Path.GetFileName(file));
@@ -260,7 +259,7 @@ if (File.Exists(outputSystemPath))
     translator.TranslateSystemFile(outputSystemPath);
 }
 
-// ==================== Fase 4: Aplicar traducción ====================
+// ==================== Phase 4: Apply translation ====================
 cache.Save();
 config.SourceLanguage = savedSourceLang;
 config.TargetLanguage = savedTargetLang;
@@ -268,33 +267,33 @@ config.Save();
 stats.Show();
 
 Console.WriteLine();
-Console.Write("  ¿Aplicar la traducción al juego? (s/n): ");
-if (Console.ReadLine()?.Trim().ToLower() == "s")
+Console.Write("  Apply the translation to the game? (y/n): ");
+if (Console.ReadLine()?.Trim().ToLower() == "y")
 {
-    // Guardar originales si es la primera vez
+    // Save originals if this is the first time
     if (!Directory.Exists(dataOriginalPath))
     {
         Directory.Move(dataPath, dataOriginalPath);
-        Console.WriteLine($"  Originales guardados en: data_original");
+        Console.WriteLine($"  Originals saved in: data_original");
     }
     else if (Directory.Exists(dataPath))
     {
-        // data ya es una traducción anterior, eliminarla
+        // Data is already a previous translation, remove it
         Directory.Delete(dataPath, true);
     }
 
-    // Copiar traducción como data activa
+    // Copy translation as active data
     CopyDirectory(outputPath, dataPath);
-    Console.WriteLine("  Traducción aplicada. El juego arrancará traducido.");
+    Console.WriteLine("  Translation applied. The game will start translated.");
     Console.WriteLine();
-    Console.WriteLine("  Para volver al idioma original:");
-    Console.WriteLine("    1. Elimina la carpeta 'data'");
-    Console.WriteLine("    2. Renombra 'data_original' a 'data'");
+    Console.WriteLine("  To revert to the original language:");
+    Console.WriteLine("    1. Delete the 'data' folder");
+    Console.WriteLine("    2. Rename 'data_original' to 'data'");
 }
 else
 {
-    Console.WriteLine($"\n  Los archivos traducidos están en: {outputPath}");
-    Console.WriteLine("  Puedes aplicarlos manualmente renombrando las carpetas.");
+    Console.WriteLine($"\n  Translated files are in: {outputPath}");
+    Console.WriteLine("  You can apply them manually by renaming the folders.");
 }
 
 Console.ReadKey();
