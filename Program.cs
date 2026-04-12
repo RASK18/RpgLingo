@@ -2,8 +2,9 @@ using RpgLingo;
 
 // ==================== Detectar rutas automáticamente ====================
 string exeDir = AppContext.BaseDirectory;
-string gamePath = Path.Combine(exeDir, "www", "data");
-string outputPath = Path.Combine(exeDir, "www", "data_es");
+string wwwDir = Path.Combine(exeDir, "www");
+string dataPath = Path.Combine(wwwDir, "data");
+string dataOriginalPath = Path.Combine(wwwDir, "data_original");
 
 Console.WriteLine();
 Console.WriteLine("  ╔══════════════════════════════════╗");
@@ -11,10 +12,14 @@ Console.WriteLine("  ║          R P G L I N G O         ║");
 Console.WriteLine("  ╚══════════════════════════════════╝");
 Console.WriteLine();
 
+// ==================== Detectar datos del juego ====================
+// Si ya se aplicó una traducción antes, los originales están en data_original
+string gamePath = Directory.Exists(dataOriginalPath) ? dataOriginalPath : dataPath;
+
 if (!Directory.Exists(gamePath))
 {
     Console.WriteLine($"  No se ha encontrado la carpeta del juego:");
-    Console.WriteLine($"  {gamePath}");
+    Console.WriteLine($"  {dataPath}");
     Console.WriteLine();
     Console.WriteLine("  Coloca RpgLingo.exe en la carpeta raíz del juego");
     Console.WriteLine("  (donde está Game.exe) y vuelve a ejecutar.");
@@ -22,16 +27,15 @@ if (!Directory.Exists(gamePath))
     return;
 }
 
-Console.WriteLine($"  Juego detectado en: {gamePath}");
-Console.WriteLine($"  Salida en:          {outputPath}");
+Console.WriteLine($"  Datos originales en: {gamePath}");
 Console.WriteLine();
 
 // ==================== Cargar configuración ====================
 Config config = Config.Load();
 
-if (!config.HasAnyApiKey())
+if (!config.HasAnyEndpoint())
 {
-    Console.WriteLine("  No hay API keys configuradas. Necesitas al menos una.\n");
+    Console.WriteLine("  No hay endpoints configurados. Necesitas al menos uno.\n");
     config.RunSetupWizard();
 }
 else
@@ -43,18 +47,59 @@ else
         config.RunSetupWizard();
 }
 
-if (!config.HasAnyApiKey())
+if (!config.HasAnyEndpoint())
 {
-    Console.WriteLine("  No se ha configurado ninguna API key. Saliendo.");
+    Console.WriteLine("  No se ha configurado ningún endpoint. Saliendo.");
     Console.ReadKey();
     return;
 }
+
+// ==================== Confirmar idiomas ====================
+string sourceLang = config.SourceLanguage;
+string targetLang = config.TargetLanguage;
+string savedSourceLang = sourceLang;
+string savedTargetLang = targetLang;
+
+Console.WriteLine($"  Idiomas: {Config.LanguageName(sourceLang)} ({sourceLang}) → {Config.LanguageName(targetLang)} ({targetLang})");
+Console.Write("  ¿Es correcto? (s/n): ");
+if (Console.ReadLine()?.Trim().ToLower() == "n")
+{
+    Console.Write($"    Idioma origen [{sourceLang}]: ");
+    string? newSource = Console.ReadLine()?.Trim().ToLower();
+    if (!string.IsNullOrEmpty(newSource))
+        sourceLang = newSource;
+
+    Console.Write($"    Idioma destino [{targetLang}]: ");
+    string? newTarget = Console.ReadLine()?.Trim().ToLower();
+    if (!string.IsNullOrEmpty(newTarget))
+        targetLang = newTarget;
+
+    Console.WriteLine($"\n  Nuevo: {Config.LanguageName(sourceLang)} ({sourceLang}) → {Config.LanguageName(targetLang)} ({targetLang})");
+    Console.Write("  ¿Guardar como idiomas por defecto? (s/n): ");
+    if (Console.ReadLine()?.Trim().ToLower() == "s")
+    {
+        savedSourceLang = sourceLang;
+        savedTargetLang = targetLang;
+        Console.WriteLine("  Guardado como predeterminado.");
+    }
+    else
+    {
+        Console.WriteLine("  Se usará solo para esta ejecución.");
+    }
+}
+
+config.SourceLanguage = sourceLang;
+config.TargetLanguage = targetLang;
+
+// ==================== Rutas de salida (dependen del idioma) ====================
+string outputPath = Path.Combine(wwwDir, $"data_{targetLang}");
+Console.WriteLine($"  Salida en: {outputPath}");
 
 // ==================== Opción de forzar retraducción ====================
 if (Directory.Exists(outputPath))
 {
     Console.WriteLine();
-    Console.WriteLine("  Se ha encontrado una traducción previa (data_es).");
+    Console.WriteLine($"  Se ha encontrado una traducción previa (data_{targetLang}).");
     Console.WriteLine("  [1] Continuar donde se quedó (saltar archivos ya traducidos)");
     Console.WriteLine("  [2] Volver a traducir todo desde cero");
     Console.Write("  Opción: ");
@@ -107,7 +152,8 @@ else
     glossary.ShowSummary();
 }
 
-RpgMakerTranslator translator = new(translate, cache, config.MaxLineLength, glossary);
+SessionStats stats = new();
+RpgMakerTranslator translator = new(translate, cache, stats, config.MaxLineLength, glossary);
 
 string[] dialogFiles = Directory.GetFiles(gamePath)
     .Where(f =>
@@ -156,6 +202,11 @@ Console.WriteLine($"    Total de cadenas:      {totalStrings:N0}");
 Console.WriteLine($"    Total de caracteres:   {totalChars:N0}");
 Console.WriteLine($"    Ya en caché:           {cachedChars:N0}");
 Console.WriteLine($"    Por traducir:          {toTranslateChars:N0}");
+Console.WriteLine();
+
+Console.WriteLine("  Cuota disponible:");
+foreach (TranslationEndpoint ep in config.Endpoints)
+    Console.WriteLine($"    {ep.DisplayName}: {ep.CharsRemaining:N0} chars libres");
 Console.WriteLine();
 
 if (toTranslateChars == 0)
@@ -209,20 +260,50 @@ if (File.Exists(outputSystemPath))
     translator.TranslateSystemFile(outputSystemPath);
 }
 
-// ==================== Finalizar ====================
+// ==================== Fase 4: Aplicar traducción ====================
 cache.Save();
+config.SourceLanguage = savedSourceLang;
+config.TargetLanguage = savedTargetLang;
 config.Save();
-Console.WriteLine("\n  ¡LISTO! Los archivos traducidos están en:");
-Console.WriteLine($"  {outputPath}");
-Console.WriteLine("\n  Reemplaza la carpeta 'data' por 'data_es' (renombrándola)");
-Console.WriteLine("  para aplicar la traducción al juego.");
+stats.Show();
+
+Console.WriteLine();
+Console.Write("  ¿Aplicar la traducción al juego? (s/n): ");
+if (Console.ReadLine()?.Trim().ToLower() == "s")
+{
+    // Guardar originales si es la primera vez
+    if (!Directory.Exists(dataOriginalPath))
+    {
+        Directory.Move(dataPath, dataOriginalPath);
+        Console.WriteLine($"  Originales guardados en: data_original");
+    }
+    else if (Directory.Exists(dataPath))
+    {
+        // data ya es una traducción anterior, eliminarla
+        Directory.Delete(dataPath, true);
+    }
+
+    // Copiar traducción como data activa
+    CopyDirectory(outputPath, dataPath);
+    Console.WriteLine("  Traducción aplicada. El juego arrancará traducido.");
+    Console.WriteLine();
+    Console.WriteLine("  Para volver al idioma original:");
+    Console.WriteLine("    1. Elimina la carpeta 'data'");
+    Console.WriteLine("    2. Renombra 'data_original' a 'data'");
+}
+else
+{
+    Console.WriteLine($"\n  Los archivos traducidos están en: {outputPath}");
+    Console.WriteLine("  Puedes aplicarlos manualmente renombrando las carpetas.");
+}
+
 Console.ReadKey();
 
 static void CopyDirectory(string source, string dest)
 {
     Directory.CreateDirectory(dest);
     foreach (string file in Directory.GetFiles(source))
-        File.Copy(file, Path.Combine(dest, Path.GetFileName(file)));
+        File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), true);
     foreach (string dir in Directory.GetDirectories(source))
         CopyDirectory(dir, Path.Combine(dest, new DirectoryInfo(dir).Name));
 }

@@ -14,33 +14,56 @@ public static partial class ControlCodeHelper
     // En JSON estos se representan como \\C[n], \\N[n], etc.
     private static readonly Regex ControlCodeRegex = BuildControlCodeRegex();
 
+    // Patrones de variables de script y plugins de RPG Maker:
+    // <tag:value>, <TAG[123]>, $gameVariables[n], _tv[\"name\"], set_npm(8,"x",0), etc.
+
     private const string TagPrefix = "⟦CC";
+    private const string ScriptPrefix = "⟦SV";
     private const string TagSuffix = "⟧";
     private const string NewlinePrefix = "⟦NL";
     private const string NewlineSuffix = "⟧";
 
-    [GeneratedRegex(@"\\\\[A-Za-z$!><\^\|\{\}](\[[^\]]*\])?", RegexOptions.Compiled)]
+    [GeneratedRegex(@"\\\\[A-Za-z$!><\^\|\{\}](\[[^\]]*\])?")]
     private static partial Regex BuildControlCodeRegex();
+
+    private static readonly Regex ScriptVarRegex = new(
+        @"<[^>]*?:[^>]*?>" +
+        @"|<[^>]*?\[[^\]]*?\][^>]*?>" +
+        @"|\$game\w+\[\d+\]" +
+        @"|\$\w+\[[^\]]+\]\s*=?" +
+        @"|\w+\[\\\\?""[^""]*?\\\\?""\]" +
+        @"|\w+\([^)]*?""[^""]*?""[^)]*?\)",
+        RegexOptions.Compiled);
 
     public record PreparedText(
         string TextForTranslation,
         List<string> ControlCodes,
+        List<string> ScriptVars,
         List<NewlineInfo> Newlines,
         string Original);
 
     public record NewlineInfo(string Token, string Value, double RelativePosition);
 
     /// <summary>
-    /// Prepara el texto para traducción: extrae control codes y saltos de línea,
-    /// los reemplaza con placeholders y devuelve el texto limpio.
+    /// Prepara el texto para traducción: extrae control codes, variables de script
+    /// y saltos de línea, los reemplaza con placeholders y devuelve el texto limpio.
     /// </summary>
     public static PreparedText Prepare(string input)
     {
         string text = input;
         List<string> controlCodes = [];
+        List<string> scriptVars = [];
         List<NewlineInfo> newlines = [];
 
-        // Paso 1: Reemplazar control codes con placeholders
+        // Paso 1: Reemplazar variables de script con placeholders
+        int svIndex = 0;
+        text = ScriptVarRegex.Replace(text, match =>
+        {
+            scriptVars.Add(match.Value);
+            return $"{ScriptPrefix}{svIndex++}{TagSuffix}";
+        });
+
+        // Paso 2: Reemplazar control codes con placeholders
         int ccIndex = 0;
         text = ControlCodeRegex.Replace(text, match =>
         {
@@ -48,7 +71,7 @@ public static partial class ControlCodeHelper
             return $"{TagPrefix}{ccIndex++}{TagSuffix}";
         });
 
-        // Paso 2: Extraer saltos de línea con posiciones relativas
+        // Paso 3: Extraer saltos de línea con posiciones relativas
         int nlIndex = 0;
         int textLengthWithoutNewlines = text.Replace("\\n", "").Replace("\n", "").Length;
 
@@ -72,7 +95,7 @@ public static partial class ControlCodeHelper
 
         text = Regex.Replace(text, @"\s{2,}", " ").Trim();
 
-        return new PreparedText(text, controlCodes, newlines, input);
+        return new PreparedText(text, controlCodes, scriptVars, newlines, input);
     }
 
     /// <summary>
@@ -83,14 +106,21 @@ public static partial class ControlCodeHelper
     {
         string result = translated;
 
-        // Paso 1: Restaurar control codes
+        // Paso 1: Restaurar variables de script
+        for (int i = 0; i < prepared.ScriptVars.Count; i++)
+        {
+            string placeholder = $"{ScriptPrefix}{i}{TagSuffix}";
+            result = result.Replace(placeholder, prepared.ScriptVars[i]);
+        }
+
+        // Paso 2: Restaurar control codes
         for (int i = 0; i < prepared.ControlCodes.Count; i++)
         {
             string placeholder = $"{TagPrefix}{i}{TagSuffix}";
             result = result.Replace(placeholder, prepared.ControlCodes[i]);
         }
 
-        // Paso 2: Reinsertar saltos de línea en posiciones proporcionales
+        // Paso 3: Reinsertar saltos de línea en posiciones proporcionales
         if (prepared.Newlines.Count > 0)
         {
             result = ReinsertNewlines(result, prepared.Newlines);
@@ -100,19 +130,20 @@ public static partial class ControlCodeHelper
     }
 
     /// <summary>
-    /// Elimina todos los control codes del texto (para comparaciones o telemetría).
+    /// Elimina todos los control codes y variables de script del texto.
     /// </summary>
     public static string Strip(string input)
     {
-        return ControlCodeRegex.Replace(input, "").Trim();
+        string result = ScriptVarRegex.Replace(input, "");
+        return ControlCodeRegex.Replace(result, "").Trim();
     }
 
     /// <summary>
-    /// Comprueba si el texto contiene algún control code.
+    /// Comprueba si el texto contiene algún control code o variable de script.
     /// </summary>
     public static bool HasControlCodes(string input)
     {
-        return ControlCodeRegex.IsMatch(input);
+        return ControlCodeRegex.IsMatch(input) || ScriptVarRegex.IsMatch(input);
     }
 
     private static string ReinsertNewlines(string text, List<NewlineInfo> newlines)

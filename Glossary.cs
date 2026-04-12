@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
 namespace RpgLingo;
+
 public class GlossaryEntry
 {
     public string Term { get; set; } = "";
@@ -13,7 +14,7 @@ public class GlossaryEntry
 public class Glossary
 {
     private readonly string _path;
-    private List<GlossaryEntry> _entries;
+    private readonly List<GlossaryEntry> _entries;
 
     private const string PlaceholderPrefix = "⟦G";
     private const string PlaceholderSuffix = "⟧";

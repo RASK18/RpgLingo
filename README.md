@@ -1,21 +1,145 @@
 # RpgLingo
 
-Automatic translator for RPG Maker MV/MZ games. It extracts all in-game text (dialogs, items, skills, menus, etc.), translates it using professional translation APIs, and writes the result back into game-ready JSON files.
+Automatic translator for RPG Maker MV/MZ games. Drop the executable in the game folder, run it, and the game is translated. Supports DeepL, Google Cloud and Azure with automatic fallback between services.
+
+## Requirements
+
+- Windows (self-contained .exe, no .NET installation needed)
+- An API key for at least one translation service:
+
+| Service | Free tier | How to get a key |
+|---------|-----------|------------------|
+| DeepL API | 500K chars/month | [deepl.com/pro-api](https://www.deepl.com/pro-api) |
+| Google Cloud Translation | $300 free credits (1 year) | [cloud.google.com](https://cloud.google.com/translate/docs/setup) |
+| Azure Translator | 2M chars/month | [azure.microsoft.com](https://learn.microsoft.com/en-us/azure/ai-services/translator/) |
+
+You can add **multiple keys for the same service** to multiply your free quota. For example, three DeepL free accounts give you 1.5M chars/month.
+
+## Usage
+
+1. Download `RpgLingo.exe` from [Releases](https://github.com/your-username/RpgLingo/releases).
+2. Copy it into the root folder of your RPG Maker MV/MZ game (where `Game.exe` is).
+3. Run `RpgLingo.exe`.
+
+On first run, the program guides you through adding your API keys and choosing source/target languages. This configuration is stored globally in `%LocalAppData%/RpgLingo/` and reused for all future games.
+
+The program runs in four phases:
+
+### Phase 1 â€” Analysis
+
+Scans all game files, counts characters, and shows how much quota each endpoint has left:
+
+```
+  Idiomas: English (en) â†’ EspaÃ±ol (es)
+  Â¿Es correcto? (s/n): s
+
+  Analizando archivos...
+
+    Map001.json                  12,340 chars (2,100 en cachÃ©)
+    CommonEvents.json             3,200 chars (0 en cachÃ©)
+    Items.json                      890 chars (0 en cachÃ©)
+
+    Total de cadenas:      1,245
+    Total de caracteres:   16,430
+    Ya en cachÃ©:           2,100
+    Por traducir:          14,330
+
+  Cuota disponible:
+    DeepL Free #1: 425,000 chars libres
+    DeepL Free #2: 500,000 chars libres
+
+  Â¿Continuar con la traducciÃ³n? (s/n):
+```
+
+No API calls are made during this phase.
+
+### Phase 2 â€” Backup
+
+Copies the game's `data` folder to `data_{language}` (e.g. `data_es`, `data_fr`). Original files are never modified.
+
+### Phase 3 â€” Translation
+
+Translates all text in the copied files. Progress is shown in real time. If interrupted (crash, power loss, Ctrl+C), run again and it will pick up where it left off â€” the cache saves periodically, not just at the end.
+
+### Phase 4 â€” Apply
+
+After translation, the program asks if you want to apply it to the game:
+
+```
+  Â¿Aplicar la traducciÃ³n al juego? (s/n): s
+  Originales guardados en: data_original
+  TraducciÃ³n aplicada. El juego arrancarÃ¡ traducido.
+```
+
+This renames `data` â†’ `data_original` (backup) and copies `data_{language}` â†’ `data` (active). To revert to the original language, delete `data` and rename `data_original` back to `data`.
+
+## Glossary
+
+On first run for each game, RpgLingo scans the game files and generates a `glossary.json` next to the executable with all character names, items, skills, weapons, enemies, classes, and states. You can edit this file to add translations for terms that should stay consistent:
+
+```json
+[
+  { "Term": "Dark Knight", "Translation": "Caballero Oscuro", "Note": "Clase" },
+  { "Term": "Excalibur", "Translation": "Excalibur", "Note": "Arma" },
+  { "Term": "Heal", "Translation": "Curar", "Note": "Habilidad" }
+]
+```
+
+Terms with a translation are replaced with placeholders before sending to the API and restored afterward, so they always appear exactly as you defined them. Terms without a translation are left as-is in the original language.
+
+## Configuration
+
+All settings are stored in `%LocalAppData%/RpgLingo/config.json`:
+
+```json
+{
+  "Endpoints": [
+    {
+      "Service": "DeepL",
+      "ApiKey": "your-key-here",
+      "CharLimit": 500000,
+      "CharsUsed": 123000,
+      "Label": "DeepL Free #1"
+    },
+    {
+      "Service": "Azure",
+      "ApiKey": "your-azure-key",
+      "Region": "westeurope",
+      "CharLimit": 2000000,
+      "CharsUsed": 0,
+      "Label": "Azure Free"
+    }
+  ],
+  "SourceLanguage": "en",
+  "TargetLanguage": "es",
+  "MaxLineLength": 55,
+  "CacheMaxSizeMB": 512
+}
+```
+
+Endpoints are used in order â€” the first one with remaining quota handles the translation. When it runs out, the next one takes over automatically. You can manage endpoints through the interactive setup wizard on first run, or by editing the JSON file directly.
+
+Source and target languages are stored as defaults but you can change them at the start of each run â€” either permanently or just for that session.
+
+The translation cache (`translation_cache.json`) is shared across all games. Reset the usage counters at the start of each month via the setup wizard.
 
 ## Features
 
-- **JSON parsing** — Navigates RPG Maker's data structure directly instead of using fragile regex, ensuring safe and accurate text extraction.
-- **Dialog grouping** — Joins consecutive dialog lines (code 401) into a single block before translating, giving the translation engine full context and producing higher quality results.
-- **Smart line wrapping** — Redistributes translated text into lines that fit the dialog window (~55 characters by default, configurable).
-- **API cascade with quota tracking** — Uses DeepL as primary translator, falling back to Google Cloud Translation and Azure Translator when quotas are reached. Character usage is tracked automatically.
-- **Translation cache** — Caches every translated string to disk. Repeated text doesn't cost API calls. Shared across all games you translate.
-- **Dry run with cost estimate** — Counts all characters before making any API calls, showing exactly how much quota will be used. Asks for confirmation before proceeding.
-- **Non-destructive** — Translates on a copy of the game files (`data_es`), never touching the originals.
-- **Retry with backoff** — Automatically retries failed API calls up to 3 times with progressive delay.
-- **Comprehensive coverage** — Translates dialogs, scroll text, choices, items, weapons, armors, skills, enemies, classes, states, system terms, and menu text.
-- **Zero configuration per game** — Just drop the executable in the game folder and run it. API keys and settings are stored globally in AppData and shared across all games.
+- **Endpoint cascade** â€” Add as many API keys as you want, in priority order. Supports mixing services (e.g. two DeepL keys, then one Azure as fallback). The first with available quota is used.
+- **Configurable languages** â€” Source and target languages are configurable (ISO 639-1 codes). Change them globally or just for a single session.
+- **Dialog grouping** â€” Consecutive dialog lines (code 401) are joined into a single block before translating, giving the API full context for higher quality results.
+- **Smart line wrapping** â€” Translated text is redistributed into lines that fit the dialog window (~55 chars, configurable) using a dynamic programming algorithm for visually balanced lines.
+- **Translation cache** â€” Every translated string is cached to disk and shared across games. Repeated text costs zero API calls. The cache saves every 10 translations, so even a crash loses almost nothing.
+- **Glossary** â€” Auto-generated per game from character names, items, skills, etc. Fill in translations to ensure consistency. Uses unicode placeholders that translation APIs won't touch.
+- **Control code protection** â€” All RPG Maker escape sequences (`\C[n]`, `\V[n]`, `\I[n]`, etc.) and script variables (`$gameVariables[n]`, `<tag:value>`, `set_npm(...)`) are detected, protected during translation, and restored afterward.
+- **Batch translation** â€” Sends up to 50 texts per API call when using DeepL, dramatically reducing latency for object files and choices.
+- **Non-destructive** â€” Originals are always preserved in `data_original`. Multiple translations can coexist side by side (`data_es`, `data_fr`, `data_ja`).
+- **Dry run** â€” Counts all characters and shows quota impact before making any API calls.
+- **Resume support** â€” If interrupted, picks up where it left off. The cache and per-file progress markers survive crashes.
+- **Session statistics** â€” After each run, shows translations, cache hits, failures, API calls, characters translated, speed (chars/s), and more.
+- **Auto-apply** â€” Optionally applies the translation to the game automatically by renaming folders, with a simple path to revert.
 
-## Supported RPG Maker event codes
+## Supported event codes
 
 | Code | Type |
 |------|------|
@@ -24,82 +148,7 @@ Automatic translator for RPG Maker MV/MZ games. It extracts all in-game text (di
 | 102 | Choices |
 | 402 | Choice answers |
 
-## Supported translation services
-
-| Service | Auth | Free tier |
-|---------|------|-----------|
-| DeepL API | API key | 500K chars/month |
-| Google Cloud Translation | API key | $300 free credits (1 year) |
-| Azure Translator | API key | 2M chars/month |
-
-The program uses them in cascade: DeepL first (best quality), then Google, then Azure. You only need at least one API key to get started.
-
-## Requirements
-
-- Windows (self-contained .exe, no .NET installation needed)
-- An API key for at least one of the supported translation services
-
-## Usage
-
-1. Download `RpgLingo.exe` from [Releases](https://github.com/RASK18/RpgLingo/releases).
-2. Copy `RpgLingo.exe` into the root folder of your RPG Maker MV/MZ game (where `Game.exe` is).
-3. Run `RpgLingo.exe`.
-
-On first run, the program will ask for your API keys. This only happens once — keys are stored in `%AppData%/RpgLingo/config.json` and reused for all future games.
-
-The program runs in three phases:
-
-### Phase 1 — Analysis
-
-Scans all game files and shows how many characters need translating:
-
-```
-  Game detected at: C:\Games\MyRPG\www\data
-  Output at:        C:\Games\MyRPG\www\data_es
-
-  Analyzing files...
-
-    Map001.json                  12,340 chars (2,100 cached)
-    Map002.json                   8,750 chars (0 cached)
-    CommonEvents.json             3,200 chars (500 cached)
-    Items.json                      890 chars (0 cached)
-
-    Total strings:      1,245
-    Total characters:   25,180
-    Already cached:     2,600
-    To translate:       22,580
-
-  Continue with translation? (y/n):
-```
-
-### Phase 2 — Backup
-
-Copies the game's `data` folder to `data_es`. Original files are never modified.
-
-### Phase 3 — Translation
-
-Translates all text in the copied files. Progress is shown in real time.
-
-After translation, rename `data` to `data_original` and `data_es` to `data` to apply the translation.
-
-## Configuration
-
-All settings are stored in `%AppData%/RpgLingo/config.json`:
-
-| Setting | Description | Default |
-|---------|-------------|---------|
-| `DeepLApiKey` | Primary DeepL API key | — |
-| `DeepLApiKey2` | Secondary DeepL API key (optional, doubles your free quota) | — |
-| `GoogleApiKey` | Google Cloud Translation API key | — |
-| `AzureApiKey` | Azure Translator API key | — |
-| `AzureRegion` | Azure service region | `westeurope` |
-| `MaxLineLength` | Max characters per dialog line | `55` |
-| `DeepLCount` | Characters used on DeepL this month | `0` |
-| `DeepLCount2` | Characters used on DeepL (secondary key) | `0` |
-| `GoogleCount` | Characters used on Google this month | `0` |
-| `AzureCount` | Characters used on Azure this month | `0` |
-
-The translation cache is stored in `%AppData%/RpgLingo/translation_cache.json` and shared across all games. Reset the usage counters at the start of each month by editing the config file or deleting it.
+Additionally, RpgLingo translates Items, Weapons, Armors, Skills, Enemies, Classes, States, and System.json (game title, menu terms, battle commands, equipment types, element names).
 
 ## Building from source
 
@@ -107,11 +156,8 @@ The translation cache is stored in `%AppData%/RpgLingo/translation_cache.json` a
 dotnet publish -c Release -r win-x64 --self-contained -p:PublishSingleFile=true
 ```
 
-NuGet dependencies:
-- `DeepL.net`
-- `Google.Cloud.Translation.V2`
-- `Azure.AI.Translation.Text`
+NuGet dependencies: `DeepL.net`, `Google.Cloud.Translation.V2`, `Azure.AI.Translation.Text`
 
 ## License
 
-This project is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+[GNU Affero General Public License v3.0](LICENSE)

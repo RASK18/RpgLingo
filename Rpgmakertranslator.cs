@@ -4,11 +4,12 @@ using System.Text.Json.Nodes;
 using System.Web;
 
 namespace RpgLingo;
-public class RpgMakerTranslator(Translate translate, TranslationCache cache, int maxLineLength = 55, Glossary? glossary = null)
+public class RpgMakerTranslator(Translate translate, TranslationCache cache, SessionStats stats, int maxLineLength = 55, Glossary? glossary = null)
 {
     private readonly Translate _translate = translate;
     private readonly TranslationCache _cache = cache;
     private readonly Glossary? _glossary = glossary;
+    private readonly SessionStats _stats = stats;
     private int _translated;
     private int _skipped;
 
@@ -22,6 +23,8 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
 
     private static readonly string[] ObjectFields =
         ["name", "description", "message1", "message2", "message3", "message4", "nickname", "profile"];
+
+    public SessionStats Stats => _stats;
 
     // ==================== Archivos de diálogos (Maps, CommonEvents) ====================
 
@@ -561,15 +564,33 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         string leadingSpace = prepared.Original.Length > 0 && prepared.Original[0] == ' ' ? " " : "";
         string cleanText = prepared.TextForTranslation;
 
+        // Rastrear control codes y script vars detectados
+        _stats.ControlCodesDetected += prepared.ControlCodes.Count;
+        _stats.ScriptVarsDetected += prepared.ScriptVars.Count;
+
         if (_cache.TryGet(cleanText, out string cached))
+        {
+            _stats.AddCacheHit(cleanText.Length);
             return leadingSpace + ControlCodeHelper.Restore(cached, prepared);
+        }
 
         // Aplicar glosario
         string textForApi = _glossary != null
             ? _glossary.ApplyBeforeTranslation(cleanText)
             : cleanText;
 
-        string? result = _translate.ToSpanish(textForApi);
+        string? result;
+        try
+        {
+            result = _translate.ToSpanish(textForApi);
+        }
+        catch (Exception ex)
+        {
+            _stats.AddFailure();
+            Console.WriteLine($"    Error traduciendo: {ex.Message}");
+            return prepared.Original;
+        }
+
         if (result == null)
             return prepared.Original;
 
@@ -577,7 +598,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
         if (_glossary != null)
             result = _glossary.ApplyAfterTranslation(result);
 
-        // Preservar mayúsculas/minúsculas del original
+        // Preservar mayúsculas/minúsculas
         if (cleanText.Length > 0 && result.Length > 0)
         {
             if (char.IsLower(cleanText[0]) && char.IsUpper(result[0]))
@@ -586,6 +607,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
 
         result = HttpUtility.HtmlDecode(result);
         _cache.Set(cleanText, result);
+        _stats.AddTranslation(cleanText.Length);
 
         return leadingSpace + ControlCodeHelper.Restore(result, prepared);
     }
@@ -597,6 +619,13 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
     {
         List<ControlCodeHelper.PreparedText> prepared = texts.Select(ControlCodeHelper.Prepare).ToList();
         List<string> cleanTexts = prepared.Select(p => p.TextForTranslation).ToList();
+
+        // Rastrear control codes y script vars
+        foreach (ControlCodeHelper.PreparedText? p in prepared)
+        {
+            _stats.ControlCodesDetected += p.ControlCodes.Count;
+            _stats.ScriptVarsDetected += p.ScriptVars.Count;
+        }
 
         // Separar textos cacheados de los que necesitan API
         string?[] results = new string?[texts.Count];
@@ -613,6 +642,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
             if (_cache.TryGet(cleanTexts[i], out string cached))
             {
                 results[i] = ControlCodeHelper.Restore(cached, prepared[i]);
+                _stats.AddCacheHit(cleanTexts[i].Length);
                 continue;
             }
 
@@ -626,7 +656,20 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
 
         // Batch translate
         List<string> apiTexts = toTranslate.Select(t => t.text).ToList();
-        List<string?> apiResults = _translate.ToSpanishBatch(apiTexts);
+        List<string?> apiResults;
+        try
+        {
+            apiResults = _translate.ToSpanishBatch(apiTexts);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"    Error en batch: {ex.Message}");
+            _stats.AddFailure();
+            return results.ToList();
+        }
+
+        long batchChars = 0;
+        int batchCount = 0;
 
         for (int k = 0; k < toTranslate.Count; k++)
         {
@@ -651,7 +694,13 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
             result = HttpUtility.HtmlDecode(result);
             _cache.Set(cleanTexts[idx], result);
             results[idx] = ControlCodeHelper.Restore(result, prepared[idx]);
+
+            batchChars += cleanTexts[idx].Length;
+            batchCount++;
         }
+
+        if (batchCount > 0)
+            _stats.AddBatchTranslation(batchCount, batchChars);
 
         return results.ToList();
     }
@@ -767,23 +816,25 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, int
     // ==================== Control de archivos ya traducidos ====================
 
     private static readonly string TranslatedMarkerDir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "RpgLingo", "translated");
 
-    private static bool IsAlreadyTranslated(string filePath)
+    private bool IsAlreadyTranslated(string filePath)
     {
         string marker = GetMarkerPath(filePath);
         if (!File.Exists(marker)) return false;
 
         Console.WriteLine($"  Saltando (ya traducido): {Path.GetFileName(filePath)}");
+        _stats.FilesSkipped++;
         return true;
     }
 
-    private static void MarkAsTranslated(string filePath)
+    private void MarkAsTranslated(string filePath)
     {
         string marker = GetMarkerPath(filePath);
         Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
         File.WriteAllText(marker, DateTime.Now.ToString("o"));
+        _stats.FilesProcessed++;
     }
 
     /// <summary>
