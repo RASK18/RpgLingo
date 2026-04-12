@@ -7,11 +7,7 @@ string wwwDir = Path.Combine(exeDir, "www");
 string dataPath = Path.Combine(wwwDir, "data");
 string dataOriginalPath = Path.Combine(wwwDir, "data_original");
 
-Console.WriteLine();
-Console.WriteLine("  ╔══════════════════════════════════╗");
-Console.WriteLine("  ║          R P G L I N G O         ║");
-Console.WriteLine("  ╚══════════════════════════════════╝");
-Console.WriteLine();
+PrintHeader();
 
 // ==================== Detect game data ====================
 // If a translation was already applied, originals are in data_original
@@ -24,12 +20,11 @@ if (!Directory.Exists(gamePath))
     Console.WriteLine();
     Console.WriteLine("  Place RpgLingo.exe in the game's root folder");
     Console.WriteLine("  (where Game.exe is) and run again.");
+    Console.WriteLine();
+    Console.WriteLine($"\n  Press any key to exit...");
     Console.ReadKey();
     return;
 }
-
-Console.WriteLine($"  Original data in: {gamePath}");
-Console.WriteLine();
 
 // ==================== Load configuration ====================
 Config config = Config.Load();
@@ -51,9 +46,14 @@ else
 if (!config.HasAnyEndpoint())
 {
     Console.WriteLine("  No endpoints configured. Exiting.");
+    Console.WriteLine();
+    Console.WriteLine($"\n  Press any key to exit...");
     Console.ReadKey();
     return;
 }
+
+Console.Clear();
+PrintHeader();
 
 // ==================== Confirm languages ====================
 string sourceLang = config.SourceLanguage;
@@ -61,7 +61,7 @@ string targetLang = config.TargetLanguage;
 string savedSourceLang = sourceLang;
 string savedTargetLang = targetLang;
 
-Console.WriteLine($"  Languages: {Config.LanguageName(sourceLang)} ({sourceLang}) → {Config.LanguageName(targetLang)} ({targetLang})");
+Console.WriteLine($"  For this game: {Config.LanguageName(sourceLang)} ({sourceLang}) → {Config.LanguageName(targetLang)} ({targetLang})");
 Console.Write("  Is this correct? (y/n): ");
 if (Console.ReadLine()?.Trim().ToLower() == "n")
 {
@@ -91,6 +91,9 @@ if (Console.ReadLine()?.Trim().ToLower() == "n")
 
 config.SourceLanguage = sourceLang;
 config.TargetLanguage = targetLang;
+
+Console.Clear();
+PrintHeader();
 
 // ==================== Output paths (depend on language) ====================
 string outputPath = Path.Combine(wwwDir, $"data_{targetLang}");
@@ -132,15 +135,15 @@ if (glossary.Count == 0)
         Console.WriteLine($"  Found {added} terms (character names, items, skills, etc.).");
         Console.WriteLine($"  Saved to: glossary.json");
         Console.WriteLine();
-        Console.WriteLine("  To ensure consistent translations for names and terms,");
-        Console.WriteLine("  edit glossary.json and fill in the \"Translation\" field:");
+        Console.WriteLine("  A glossary ensures that specific terms (character names, items, skills) are always");
+        Console.WriteLine("  translated the same way. Edit glossary.json to add your preferred translations.");
         Console.WriteLine();
-        Console.WriteLine("    { \"Term\": \"Dark Knight\", \"Translation\": \"Caballero Oscuro\" }");
-        Console.WriteLine();
-        Console.Write("  Edit the glossary before continuing? (y/n): ");
+        Console.Write("  Would you like to exit and edit glossary.json first? (y/n): ");
         if (Console.ReadLine()?.Trim().ToLower() == "y")
         {
             Console.WriteLine($"\n  Edit the file and run RpgLingo again.");
+            Console.WriteLine();
+            Console.WriteLine($"\n  Press any key to exit...");
             Console.ReadKey();
             return;
         }
@@ -154,6 +157,9 @@ else
 {
     glossary.ShowSummary();
 }
+
+Console.Clear();
+PrintHeader();
 
 SessionStats stats = new();
 RpgMakerTranslator translator = new(translate, cache, stats, config.MaxLineLength, glossary);
@@ -200,6 +206,12 @@ string systemPath = Path.Combine(gamePath, "System.json");
 if (File.Exists(systemPath))
     AddCount("System.json", translator.CountSystemFile(systemPath));
 
+// CSV localization file (text.csv)
+string csvPath = Path.Combine(gamePath, "text.csv");
+bool hasCsv = File.Exists(csvPath);
+if (hasCsv)
+    AddCount("text.csv", translator.CountCsvFile(csvPath, sourceLang));
+
 Console.WriteLine();
 Console.WriteLine($"    Total strings:         {totalStrings:N0}");
 Console.WriteLine($"    Total characters:      {totalChars:N0}");
@@ -212,20 +224,30 @@ foreach (TranslationEndpoint ep in config.Endpoints)
     Console.WriteLine($"    {ep.DisplayName}: {ep.CharsRemaining:N0} chars remaining");
 Console.WriteLine();
 
-if (toTranslateChars == 0)
+if (totalStrings == 0)
 {
-    Console.WriteLine("  Nothing new to translate. Everything is cached.");
+    Console.WriteLine("  No translatable text found in game files.");
+    Console.WriteLine();
+    Console.WriteLine($"\n  Press any key to exit...");
     Console.ReadKey();
     return;
 }
+
+if (toTranslateChars == 0)
+    Console.WriteLine("  All text is cached. No API calls needed.");
 
 Console.Write("  Continue with translation? (y/n): ");
 if (Console.ReadLine()?.Trim().ToLower() != "y")
 {
     Console.WriteLine("  Cancelled.");
+    Console.WriteLine();
+    Console.WriteLine($"\n  Press any key to exit...");
     Console.ReadKey();
     return;
 }
+
+Console.Clear();
+PrintHeader();
 
 // ==================== Phase 2: Backup ====================
 if (!Directory.Exists(outputPath))
@@ -263,6 +285,14 @@ if (File.Exists(outputSystemPath))
     translator.TranslateSystemFile(outputSystemPath);
 }
 
+// CSV localization file
+string outputCsvPath = Path.Combine(outputPath, "text.csv");
+if (hasCsv && File.Exists(outputCsvPath))
+{
+    Console.WriteLine("\n--- text.csv ---");
+    translator.TranslateCsvFile(outputCsvPath, sourceLang, targetLang);
+}
+
 // ==================== Phase 4: Apply translation ====================
 cache.Save();
 config.SourceLanguage = savedSourceLang;
@@ -274,6 +304,9 @@ Console.WriteLine();
 Console.Write("  Apply the translation to the game? (y/n): ");
 if (Console.ReadLine()?.Trim().ToLower() == "y")
 {
+    Console.Clear();
+    PrintHeader();
+
     // Save originals if this is the first time
     if (!Directory.Exists(dataOriginalPath))
     {
@@ -296,10 +329,15 @@ if (Console.ReadLine()?.Trim().ToLower() == "y")
 }
 else
 {
+    Console.Clear();
+    PrintHeader();
+
     Console.WriteLine($"\n  Translated files are in: {outputPath}");
     Console.WriteLine("  You can apply them manually by renaming the folders.");
 }
 
+// ==================== END ====================
+Console.WriteLine($"\n  Press any key to exit...");
 Console.ReadKey();
 
 static void CopyDirectory(string source, string dest)
@@ -309,4 +347,13 @@ static void CopyDirectory(string source, string dest)
         File.Copy(file, Path.Combine(dest, Path.GetFileName(file)), true);
     foreach (string dir in Directory.GetDirectories(source))
         CopyDirectory(dir, Path.Combine(dest, new DirectoryInfo(dir).Name));
+}
+
+static void PrintHeader()
+{
+    Console.WriteLine();
+    Console.WriteLine("  ╔══════════════════════════════════╗");
+    Console.WriteLine("  ║          R P G L I N G O         ║");
+    Console.WriteLine("  ╚══════════════════════════════════╝");
+    Console.WriteLine();
 }

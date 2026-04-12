@@ -70,11 +70,11 @@ public class Config
 
     public void ShowSummary()
     {
-        Console.WriteLine("  Current configuration:");
-        Console.WriteLine($"    Source language:    {LanguageName(SourceLanguage)} ({SourceLanguage})");
-        Console.WriteLine($"    Target language:    {LanguageName(TargetLanguage)} ({TargetLanguage})");
-        Console.WriteLine($"    Max line length:    {MaxLineLength}");
-        Console.WriteLine($"    Cache max size:     {CacheMaxSizeMB}MB");
+        Console.WriteLine("  Global configuration:");
+        Console.WriteLine($"    Default source language:    {LanguageName(SourceLanguage)} ({SourceLanguage})");
+        Console.WriteLine($"    Default target language:    {LanguageName(TargetLanguage)} ({TargetLanguage})");
+        Console.WriteLine($"    Max line length:            {MaxLineLength}");
+        Console.WriteLine($"    Cache max size:             {CacheMaxSizeMB} MB");
         Console.WriteLine();
 
         if (Endpoints.Count == 0)

@@ -397,6 +397,264 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         return true;
     }
 
+    // ==================== CSV localization files (text.csv) ====================
+
+    /// <summary>
+    /// Language column header mappings: ISO 639-1 code → possible CSV headers.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> LanguageHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["en"] = ["English", "EN", "english", "ENG", "eng"],
+        ["es"] = ["Spanish", "ES", "spanish", "Español", "español"],
+        ["ja"] = ["JP", "JA", "Japanese", "japanese", "日本語", "日本语"],
+        ["zh"] = ["繁中", "簡中", "Chinese", "ZH", "中文"],
+        ["vi"] = ["VT", "VI", "Vietnamese", "vietnamese"],
+        ["fr"] = ["FR", "French", "french", "Français"],
+        ["de"] = ["DE", "German", "german", "Deutsch"],
+        ["pt"] = ["PT", "Portuguese", "portuguese", "Português"],
+        ["ko"] = ["KO", "Korean", "korean", "한국어"],
+        ["ru"] = ["RU", "Russian", "russian", "Русский"],
+        ["it"] = ["IT", "Italian", "italian", "Italiano"],
+    };
+
+    /// <summary>
+    /// Translates a CSV localization file (text.csv).
+    /// Finds the source language column, translates each cell,
+    /// and overwrites that column with the translations.
+    /// </summary>
+    public bool TranslateCsvFile(string filePath, string sourceLang, string targetLang)
+    {
+        if (IsAlreadyTranslated(filePath)) return false;
+
+        _translated = 0;
+        _skipped = 0;
+
+        // Parse CSV respecting CRLF as row delimiter and LF inside quotes as content
+        string raw = File.ReadAllText(filePath);
+        List<List<string>> rows = ParseCsv(raw);
+        if (rows.Count < 2) return false; // Need at least header + 1 data row
+
+        List<string> header = rows[0];
+
+        // Find source language column
+        int sourceCol = FindLanguageColumn(header, sourceLang);
+        if (sourceCol < 0)
+        {
+            Console.WriteLine($"  Could not find column for language '{sourceLang}' in CSV header.");
+            Console.WriteLine($"  Available columns: {string.Join(", ", header.Where(h => !string.IsNullOrWhiteSpace(h)))}");
+            return false;
+        }
+
+        Console.WriteLine($"  Source column: [{sourceCol}] \"{header[sourceCol]}\"");
+
+        // Collect all texts to translate
+        List<(int row, string text)> textsToTranslate = [];
+        for (int r = 1; r < rows.Count; r++)
+        {
+            if (sourceCol >= rows[r].Count) continue;
+            string cell = rows[r][sourceCol];
+            if (!string.IsNullOrWhiteSpace(cell) && cell.Any(char.IsLetter))
+                textsToTranslate.Add((r, cell));
+        }
+
+        if (textsToTranslate.Count == 0)
+        {
+            Console.WriteLine("  No translatable text found in source column.");
+            return false;
+        }
+
+        Console.WriteLine($"  Translating {textsToTranslate.Count} cells...");
+
+        // Translate in batches
+        List<string> allTexts = textsToTranslate.Select(t => t.text).ToList();
+        List<string?> translations = TranslateTextBatch(allTexts);
+
+        for (int i = 0; i < textsToTranslate.Count; i++)
+        {
+            int rowIdx = textsToTranslate[i].row;
+            string? result = translations[i];
+            if (result != null)
+            {
+                // Ensure row has enough columns
+                while (rows[rowIdx].Count <= sourceCol)
+                    rows[rowIdx].Add("");
+                rows[rowIdx][sourceCol] = result;
+                _translated++;
+            }
+            else
+            {
+                _skipped++;
+            }
+        }
+
+        // Update header to reflect target language
+        if (LanguageHeaders.TryGetValue(targetLang, out string[]? targetHeaders))
+            header[sourceCol] = targetHeaders[0]; // Use first (most readable) name
+        else
+            header[sourceCol] = targetLang.ToUpper();
+
+        // Write back as CSV with CRLF line endings
+        File.WriteAllText(filePath, WriteCsv(rows));
+        MarkAsTranslated(filePath);
+        Console.WriteLine($"  Translated: {_translated} | Skipped: {_skipped}");
+        return true;
+    }
+
+    public CharCount CountCsvFile(string filePath, string sourceLang)
+    {
+        string raw = File.ReadAllText(filePath);
+        List<List<string>> rows = ParseCsv(raw);
+        if (rows.Count < 2) return new(0, 0, 0, 0);
+
+        int sourceCol = FindLanguageColumn(rows[0], sourceLang);
+        if (sourceCol < 0) return new(0, 0, 0, 0);
+
+        CharCounter counter = new(_cache);
+        for (int r = 1; r < rows.Count; r++)
+        {
+            if (sourceCol >= rows[r].Count) continue;
+            counter.Add(rows[r][sourceCol]);
+        }
+        return counter.Result;
+    }
+
+    private static int FindLanguageColumn(List<string> header, string langCode)
+    {
+        // Try exact match with known headers
+        if (LanguageHeaders.TryGetValue(langCode, out string[]? candidates))
+        {
+            foreach (string candidate in candidates)
+            {
+                int idx = header.FindIndex(h => h.Trim() == candidate);
+                if (idx >= 0) return idx;
+            }
+        }
+
+        // Fallback: case-insensitive search for the code itself
+        int fallback = header.FindIndex(h =>
+            h.Trim().Equals(langCode, StringComparison.OrdinalIgnoreCase));
+        return fallback;
+    }
+
+    /// <summary>
+    /// Parses CSV respecting quoted fields.
+    /// CRLF = row delimiter, LF inside quotes = cell content.
+    /// </summary>
+    private static List<List<string>> ParseCsv(string raw)
+    {
+        List<List<string>> rows = [];
+        List<string> currentRow = [];
+        System.Text.StringBuilder currentField = new();
+        bool inQuotes = false;
+        int i = 0;
+
+        while (i < raw.Length)
+        {
+            char c = raw[i];
+
+            if (inQuotes)
+            {
+                if (c == '"')
+                {
+                    // Check for escaped quote ""
+                    if (i + 1 < raw.Length && raw[i + 1] == '"')
+                    {
+                        currentField.Append('"');
+                        i += 2;
+                    }
+                    else
+                    {
+                        // End of quoted field
+                        inQuotes = false;
+                        i++;
+                    }
+                }
+                else
+                {
+                    // Any character inside quotes (including LF) is content
+                    currentField.Append(c);
+                    i++;
+                }
+            }
+            else
+            {
+                if (c == '"')
+                {
+                    inQuotes = true;
+                    i++;
+                }
+                else if (c == ',')
+                {
+                    currentRow.Add(currentField.ToString());
+                    currentField.Clear();
+                    i++;
+                }
+                else if (c == '\r' && i + 1 < raw.Length && raw[i + 1] == '\n')
+                {
+                    // CRLF = end of row
+                    currentRow.Add(currentField.ToString());
+                    currentField.Clear();
+                    rows.Add(currentRow);
+                    currentRow = [];
+                    i += 2;
+                }
+                else if (c == '\n' && !inQuotes)
+                {
+                    // Bare LF outside quotes: treat as row end too (safety)
+                    currentRow.Add(currentField.ToString());
+                    currentField.Clear();
+                    rows.Add(currentRow);
+                    currentRow = [];
+                    i++;
+                }
+                else
+                {
+                    currentField.Append(c);
+                    i++;
+                }
+            }
+        }
+
+        // Last field/row
+        if (currentField.Length > 0 || currentRow.Count > 0)
+        {
+            currentRow.Add(currentField.ToString());
+            rows.Add(currentRow);
+        }
+
+        return rows;
+    }
+
+    /// <summary>
+    /// Writes rows back to CSV with proper quoting and CRLF line endings.
+    /// </summary>
+    private static string WriteCsv(List<List<string>> rows)
+    {
+        System.Text.StringBuilder sb = new();
+        foreach (List<string> row in rows)
+        {
+            for (int c = 0; c < row.Count; c++)
+            {
+                if (c > 0) sb.Append(',');
+
+                string field = row[c];
+                // Quote if contains comma, quote, LF, or CR
+                if (field.Contains(',') || field.Contains('"') || field.Contains('\n') || field.Contains('\r'))
+                {
+                    sb.Append('"');
+                    sb.Append(field.Replace("\"", "\"\""));
+                    sb.Append('"');
+                }
+                else
+                {
+                    sb.Append(field);
+                }
+            }
+            sb.Append("\r\n");
+        }
+        return sb.ToString();
+    }
+
     // ==================== Character counting (dry run) ====================
 
     public record CharCount(long Total, long Cached, long ToTranslate, int Strings);
@@ -492,35 +750,35 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
             switch (code)
             {
                 case 401 or 405:
-                {
-                        List<string> lines = [];
-                    while (i < list.Count && (list[i]?["code"]?.GetValue<int>() ?? 0) == code)
                     {
-                        lines.Add(list[i]!["parameters"]![0]?.GetValue<string>() ?? "");
-                        i++;
-                    }
-                    string combined = string.Join(" ", lines);
+                        List<string> lines = [];
+                        while (i < list.Count && (list[i]?["code"]?.GetValue<int>() ?? 0) == code)
+                        {
+                            lines.Add(list[i]!["parameters"]![0]?.GetValue<string>() ?? "");
+                            i++;
+                        }
+                        string combined = string.Join(" ", lines);
                         ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(combined);
-                    counter.Add(prepared.TextForTranslation);
-                    break;
-                }
+                        counter.Add(prepared.TextForTranslation);
+                        break;
+                    }
                 case 102:
-                {
+                    {
                         JsonArray? choices = list[i]?["parameters"]?[0]?.AsArray();
-                    if (choices != null)
-                        foreach (JsonNode? c in choices)
-                            counter.Add(c?.GetValue<string>());
-                    i++;
-                    break;
-                }
+                        if (choices != null)
+                            foreach (JsonNode? c in choices)
+                                counter.Add(c?.GetValue<string>());
+                        i++;
+                        break;
+                    }
                 case 402:
-                {
+                    {
                         JsonArray? p = list[i]?["parameters"]?.AsArray();
-                    if (p is { Count: >= 2 })
-                        counter.Add(p[1]?.GetValue<string>());
-                    i++;
-                    break;
-                }
+                        if (p is { Count: >= 2 })
+                            counter.Add(p[1]?.GetValue<string>());
+                        i++;
+                        break;
+                    }
                 default:
                     i++;
                     break;
