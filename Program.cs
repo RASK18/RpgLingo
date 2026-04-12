@@ -126,18 +126,16 @@ if (glossary.Count == 0)
 {
     Console.WriteLine("\n  No glossary found. Generating from game files...");
     int added = glossary.AutoPopulate(gamePath);
-    Console.WriteLine($"  Found {added} terms (names, items, skills, etc.).");
-    Console.WriteLine($"  Saved to: {glossaryPath}");
-    Console.WriteLine();
-    Console.WriteLine("  You can edit 'glossary.json' to add translations.");
-    Console.WriteLine("  Terms without a translation will be kept as-is.");
-    Console.WriteLine("  Example:");
-    Console.WriteLine("    { \"Term\": \"Dark Knight\", \"Translation\": \"Caballero Oscuro\", \"Note\": \"Class\" }");
-    Console.WriteLine();
 
     if (added > 0)
     {
-        glossary.ShowEntries(10);
+        Console.WriteLine($"  Found {added} terms (character names, items, skills, etc.).");
+        Console.WriteLine($"  Saved to: glossary.json");
+        Console.WriteLine();
+        Console.WriteLine("  To ensure consistent translations for names and terms,");
+        Console.WriteLine("  edit glossary.json and fill in the \"Translation\" field:");
+        Console.WriteLine();
+        Console.WriteLine("    { \"Term\": \"Dark Knight\", \"Translation\": \"Caballero Oscuro\" }");
         Console.WriteLine();
         Console.Write("  Edit the glossary before continuing? (y/n): ");
         if (Console.ReadLine()?.Trim().ToLower() == "y")
@@ -146,6 +144,10 @@ if (glossary.Count == 0)
             Console.ReadKey();
             return;
         }
+    }
+    else
+    {
+        Console.WriteLine("  No translatable terms found in game files.");
     }
 }
 else

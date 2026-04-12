@@ -133,29 +133,19 @@ public class Glossary
     public void ShowSummary()
     {
         int filled = _entries.Count(e => !string.IsNullOrWhiteSpace(e.Translation));
-        int empty = _entries.Count - filled;
-
-        Console.WriteLine($"  Glossary: {_entries.Count} terms ({filled} translated, {empty} pending)");
-
-        if (empty > 0)
-        {
-            Console.WriteLine($"  Terms without translation will be kept as-is.");
-            Console.WriteLine($"  Edit '{Path.GetFileName(_path)}' to add translations.");
-        }
+        Console.WriteLine($"  Glossary: {filled}/{_entries.Count} terms translated (glossary.json)");
     }
 
     public void ShowEntries(int max = 20)
     {
-        List<GlossaryEntry> entries = _entries.Take(max).ToList();
-        foreach (GlossaryEntry? entry in entries)
-        {
-            string translation = string.IsNullOrWhiteSpace(entry.Translation)
-                ? "(pending)"
-                : entry.Translation;
-            Console.WriteLine($"    {entry.Term,-25} → {translation,-25} [{entry.Note}]");
-        }
+        List<GlossaryEntry> filled = _entries.Where(e => !string.IsNullOrWhiteSpace(e.Translation)).Take(max).ToList();
+        if (filled.Count == 0) return;
 
-        if (_entries.Count > max)
-            Console.WriteLine($"    ... and {_entries.Count - max} more");
+        foreach (GlossaryEntry entry in filled)
+            Console.WriteLine($"    {entry.Term,-25} → {entry.Translation,-25} [{entry.Note}]");
+
+        int totalFilled = _entries.Count(e => !string.IsNullOrWhiteSpace(e.Translation));
+        if (totalFilled > max)
+            Console.WriteLine($"    ... and {totalFilled - max} more");
     }
 }

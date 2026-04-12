@@ -23,7 +23,7 @@ public static partial class ControlCodeHelper
     private const string NewlinePrefix = "⟦NL";
     private const string NewlineSuffix = "⟧";
 
-    [GeneratedRegex(@"\\\\[A-Za-z$!><\^\|\{\}](\[[^\]]*\])?")]
+    [GeneratedRegex(@"\\{1,2}[A-Za-z$!><\^\|\{\}]\w*(\[[^\]]*\])?")]
     private static partial Regex BuildControlCodeRegex();
 
     private static readonly Regex ScriptVarRegex = new(

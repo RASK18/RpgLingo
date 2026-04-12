@@ -88,7 +88,8 @@ public class Config
         {
             TranslationEndpoint ep = Endpoints[i];
             Console.WriteLine($"    [{i + 1}] {ep.DisplayName}");
-            Console.WriteLine($"        Service: {ep.Service} | Used: {ep.CharsUsed:N0} / {ep.CharLimit:N0}");
+            double pct = ep.CharLimit > 0 ? (double)ep.CharsUsed / ep.CharLimit * 100 : 0;
+            Console.WriteLine($"        Service: {ep.Service} | Used: {ep.CharsUsed:N0} / {ep.CharLimit:N0} ({pct:F1}%)");
         }
     }
 

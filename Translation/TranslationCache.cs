@@ -1,3 +1,4 @@
+using System.Text.Encodings.Web;
 using System.Text.Json;
 
 namespace RpgLingo.Translation;
@@ -6,6 +7,12 @@ public class TranslationCache
     private static readonly string DefaultPath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "RpgLingo", "translation_cache.json");
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
 
     private readonly string _path;
     private readonly long _maxSizeBytes;
@@ -67,8 +74,7 @@ public class TranslationCache
         {
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             PruneIfNeeded();
-            JsonSerializerOptions options = new() { WriteIndented = true };
-            File.WriteAllText(_path, JsonSerializer.Serialize(_cache, options));
+            File.WriteAllText(_path, JsonSerializer.Serialize(_cache, JsonOptions));
             _newSinceLastSave = 0;
         }
         catch (Exception ex)
@@ -82,8 +88,7 @@ public class TranslationCache
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
         PruneIfNeeded();
 
-        JsonSerializerOptions options = new() { WriteIndented = true };
-        File.WriteAllText(_path, JsonSerializer.Serialize(_cache, options));
+        File.WriteAllText(_path, JsonSerializer.Serialize(_cache, JsonOptions));
         _newSinceLastSave = 0;
 
         long sizeMB = new FileInfo(_path).Length / 1024 / 1024;
