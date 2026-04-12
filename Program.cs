@@ -1,4 +1,6 @@
 using RpgLingo;
+using RpgLingo.RpgMaker;
+using RpgLingo.Translation;
 
 string exeDir = AppContext.BaseDirectory;
 string wwwDir = Path.Combine(exeDir, "www");

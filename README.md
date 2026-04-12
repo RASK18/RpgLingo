@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="logo.png" alt="RpgLingo" width="300">
+</p>
+
 # RpgLingo
 
 Automatic translator for RPG Maker MV/MZ games. Drop the executable in the game folder, run it, and the game is translated. Supports DeepL, Google Cloud and Azure with automatic fallback between services.

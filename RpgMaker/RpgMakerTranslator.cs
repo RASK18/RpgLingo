@@ -1,9 +1,10 @@
+using RpgLingo.Translation;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Web;
 
-namespace RpgLingo;
+namespace RpgLingo.RpgMaker;
 public class RpgMakerTranslator(Translate translate, TranslationCache cache, SessionStats stats, int maxLineLength = 55, Glossary? glossary = null)
 {
     private readonly Translate _translate = translate;

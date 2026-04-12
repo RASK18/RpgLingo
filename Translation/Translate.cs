@@ -4,7 +4,7 @@ using DeepL;
 using DeepL.Model;
 using Google.Cloud.Translation.V2;
 
-namespace RpgLingo;
+namespace RpgLingo.Translation;
 public class Translate
 {
     private const int MaxRetries = 4;

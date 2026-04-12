@@ -1,6 +1,7 @@
 using System.Text.Json;
 
 namespace RpgLingo;
+
 public enum TranslationService
 {
     DeepL,

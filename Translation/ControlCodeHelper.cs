@@ -1,6 +1,6 @@
 using System.Text.RegularExpressions;
 
-namespace RpgLingo;
+namespace RpgLingo.Translation;
 
 /// <summary>
 /// Handles all RPG Maker escape sequences (colors, icons, variables, names, etc.)

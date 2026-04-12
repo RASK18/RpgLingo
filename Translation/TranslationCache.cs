@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace RpgLingo;
+namespace RpgLingo.Translation;
 public class TranslationCache
 {
     private static readonly string DefaultPath = Path.Combine(
