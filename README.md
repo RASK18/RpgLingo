@@ -42,11 +42,12 @@ Scans all game files, counts characters, and shows how much quota each endpoint 
     Map001.json                  12,340 chars (2,100 cached)
     CommonEvents.json             3,200 chars (0 cached)
     Items.json                      890 chars (0 cached)
+    text.csv                       8,450 chars (0 cached)
 
     Total strings:      1,245
-    Total characters:   16,430
+    Total characters:   24,880
     Already cached:        2,100
-    To translate:          14,330
+    To translate:          22,780
 
   Available quota:
     DeepL Free #1: 425,000 chars remaining
@@ -77,6 +78,18 @@ After translation, the program asks if you want to apply it to the game:
 
 This renames `data` → `data_original` (backup) and copies `data_{language}` → `data` (active). To revert to the original language, delete `data` and rename `data_original` back to `data`.
 
+## CSV localization plugins
+
+Some games use localization plugins (e.g. DTextPicture) that store all dialog text in a `text.csv` file instead of the standard Map JSON files. In these games, the Map files only contain references like `\say[store01]`, while the actual text lives in the CSV with one column per language.
+
+RpgLingo automatically detects `text.csv` in the data folder and handles it:
+
+1. Parses the CSV header to find the source language column (e.g. `English`, `JP`, `繁中`)
+2. Translates every cell in that column
+3. Overwrites the column with the translations and updates the header
+
+The CSV parser correctly handles multiline text within quoted fields (LF inside cells vs CRLF as row separator).
+
 ## Glossary
 
 On first run for each game, RpgLingo scans the game files and generates a `glossary.json` next to the executable with all character names, items, skills, weapons, enemies, classes, and states. You can edit this file to add translations for terms that should stay consistent:
@@ -84,8 +97,8 @@ On first run for each game, RpgLingo scans the game files and generates a `gloss
 ```json
 [
   { "Term": "Dark Knight", "Translation": "Caballero Oscuro", "Note": "Class" },
-  { "Term": "Excalibur", "Translation": "Excalibur", "Note": "Arma" },
-  { "Term": "Heal", "Translation": "Curar", "Note": "Habilidad" }
+  { "Term": "Excalibur", "Translation": "Excalibur", "Note": "Weapon" },
+  { "Term": "Heal", "Translation": "Curar", "Note": "Skill" }
 ]
 ```
 
@@ -135,24 +148,31 @@ The translation cache (`translation_cache.json`) is shared across all games. Res
 - **Smart line wrapping** — Translated text is redistributed into lines that fit the dialog window (~55 chars, configurable) using a dynamic programming algorithm for visually balanced lines.
 - **Translation cache** — Every translated string is cached to disk and shared across games. Repeated text costs zero API calls. The cache saves every 10 translations, so even a crash loses almost nothing.
 - **Glossary** — Auto-generated per game from character names, items, skills, etc. Fill in translations to ensure consistency. Uses unicode placeholders that translation APIs won't touch.
-- **Control code protection** — All RPG Maker escape sequences (`\C[n]`, `\V[n]`, `\I[n]`, etc.) and script variables (`$gameVariables[n]`, `<tag:value>`, `set_npm(...)`) are detected, protected during translation, and restored afterward.
-- **Batch translation** — Sends up to 50 texts per API call when using DeepL, dramatically reducing latency for object files and choices.
+- **Control code protection** — All RPG Maker escape sequences — both standard (`\C[n]`, `\V[n]`, `\I[n]`) and plugin-extended (`\say[x]`, `\fn[x]`, `\fs[x]`) — as well as script variables (`$gameVariables[n]`, `<tag:value>`, `set_npm(...)`) are detected, protected during translation, and restored afterward.
+- **CSV localization** — Automatically detects and translates `text.csv` files used by localization plugins, finding the correct language column and replacing it with the translation.
+- **Batch translation** — Sends up to 50 texts per API call when using DeepL, dramatically reducing latency for object files, choices, and CSV cells.
 - **Non-destructive** — Originals are always preserved in `data_original`. Multiple translations can coexist side by side (`data_es`, `data_fr`, `data_ja`).
 - **Dry run** — Counts all characters and shows quota impact before making any API calls.
 - **Resume support** — If interrupted, picks up where it left off. The cache and per-file progress markers survive crashes.
 - **Session statistics** — After each run, shows translations, cache hits, failures, API calls, characters translated, speed (chars/s), and more.
 - **Auto-apply** — Optionally applies the translation to the game automatically by renaming folders, with a simple path to revert.
 
-## Supported event codes
+## What gets translated
 
-| Code | Type |
-|------|------|
-| 401 | Dialog text |
-| 405 | Scroll text |
-| 102 | Choices |
-| 402 | Choice answers |
+**Standard RPG Maker data:**
 
-Additionally, RpgLingo translates Items, Weapons, Armors, Skills, Enemies, Classes, States, and System.json (game title, menu terms, battle commands, equipment types, element names).
+| Source | Content |
+|--------|---------|
+| Map files | Dialogs (code 401), scroll text (405), choices (102), choice answers (402) |
+| Object files | Items, Weapons, Armors, Skills, Enemies, Classes, States — names, descriptions, messages |
+| System.json | Game title, menu terms, battle commands, equipment types, element names |
+
+**Plugin data:**
+
+| Source | Content |
+|--------|---------|
+| text.csv | Dialog text from CSV-based localization plugins (DTextPicture, etc.) |
+| Generic JSON | Recursive translation of custom plugin files with configurable keys |
 
 ## Building from source
 
