@@ -106,33 +106,24 @@ public static partial class ControlCodeHelper
     {
         string result = translated;
 
-        // Step 1: Restore script variables
+        // Step 1: Remove punctuation the translator added adjacent to placeholders
+        result = RemoveTranslatorAddedPunctuation(result, prepared.TextForTranslation);
+
+        // Step 2: Restore script variables
         for (int i = 0; i < prepared.ScriptVars.Count; i++)
         {
             string placeholder = $"{ScriptPrefix}{i}{TagSuffix}";
             result = result.Replace(placeholder, prepared.ScriptVars[i]);
-
-            if (!result.Contains($"{prepared.ScriptVars[i]} "))
-                result = result.Replace(prepared.ScriptVars[i], $"{prepared.ControlCodes[i]} ");
-
-            if (!result.Contains($" {prepared.ScriptVars[i]}"))
-                result = result.Replace(prepared.ScriptVars[i], $" {prepared.ControlCodes[i]}");
         }
 
-        // Step 2: Restore control codes
+        // Step 3: Restore control codes
         for (int i = 0; i < prepared.ControlCodes.Count; i++)
         {
             string placeholder = $"{TagPrefix}{i}{TagSuffix}";
             result = result.Replace(placeholder, prepared.ControlCodes[i]);
-
-            if (!result.Contains($"{prepared.ControlCodes[i]} "))
-                result = result.Replace(prepared.ControlCodes[i], $"{prepared.ControlCodes[i]} ");
-
-            if (!result.Contains($" {prepared.ControlCodes[i]}"))
-                result = result.Replace(prepared.ControlCodes[i], $" {prepared.ControlCodes[i]}");
         }
 
-        // Step 3: Reinsert newlines at proportional positions
+        // Step 4: Reinsert newlines at proportional positions
         if (prepared.Newlines.Count > 0)
         {
             result = ReinsertNewlines(result, prepared.Newlines);
@@ -140,6 +131,55 @@ public static partial class ControlCodeHelper
 
         return result;
     }
+
+    /// <summary>
+    /// Removes punctuation characters that the translator added directly adjacent
+    /// to placeholders. Compares with the prepared text to preserve punctuation
+    /// that was already present in the original.
+    /// </summary>
+    private static string RemoveTranslatorAddedPunctuation(string translated, string preparedText)
+    {
+        Regex placeholderRegex = new(@"⟦(?:CC|SV)\d+⟧");
+        string result = translated;
+
+        foreach (Match prepMatch in placeholderRegex.Matches(preparedText))
+        {
+            string placeholder = prepMatch.Value;
+            int prepEnd = prepMatch.Index + prepMatch.Length;
+            int prepStart = prepMatch.Index;
+
+            bool hadPunctAfter = prepEnd < preparedText.Length
+                && IsTranslatorPunctuation(preparedText[prepEnd]);
+            bool hadPunctBefore = prepStart > 0
+                && IsTranslatorPunctuation(preparedText[prepStart - 1]);
+
+            int transIdx = result.IndexOf(placeholder);
+            if (transIdx < 0) continue;
+
+            int transEnd = transIdx + placeholder.Length;
+
+            // Remove punctuation after placeholder if it wasn't in the prepared text
+            if (!hadPunctAfter)
+            {
+                while (transEnd < result.Length && IsTranslatorPunctuation(result[transEnd]))
+                    result = result.Remove(transEnd, 1);
+            }
+
+            // Remove punctuation before placeholder if it wasn't in the prepared text
+            if (!hadPunctBefore)
+            {
+                while (transIdx > 0 && IsTranslatorPunctuation(result[transIdx - 1]))
+                {
+                    result = result.Remove(transIdx - 1, 1);
+                    transIdx--;
+                }
+            }
+        }
+
+        return result;
+    }
+
+    private static bool IsTranslatorPunctuation(char c) => ",;:.".Contains(c);
 
     /// <summary>
     /// Strips all control codes and script variables from text.
