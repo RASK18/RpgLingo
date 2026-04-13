@@ -11,7 +11,8 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
     private readonly TranslationCache _cache = cache;
     private readonly Glossary? _glossary = glossary;
     private readonly SessionStats _stats = stats;
-    private int _translated;
+    private int _fromApi;
+    private int _fromCache;
     private int _skipped;
 
     private static readonly JsonSerializerOptions WriteOptions = new()
@@ -33,7 +34,8 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
     {
         if (IsAlreadyTranslated(filePath)) return false;
 
-        _translated = 0;
+        _fromApi = 0;
+        _fromCache = 0;
         _skipped = 0;
 
         string json = File.ReadAllText(filePath);
@@ -48,7 +50,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
         File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
         MarkAsTranslated(filePath);
-        Console.WriteLine($"  Translated: {_translated} | Skipped: {_skipped}");
+        Console.WriteLine($"  API: {_fromApi} | Cache: {_fromCache} | Skipped: {_skipped}");
         return true;
     }
 
@@ -148,12 +150,12 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         }
 
         // Translate (with cache)
-        string translated = TranslateText(prepared);
+        string translated = TranslateText(prepared, out bool fromCache);
+        if (fromCache) _fromCache += lines.Count;
+        else _fromApi += lines.Count;
+
         if (translated == combined)
-        {
-            _skipped += lines.Count;
             return i;
-        }
 
         // Redistribute into lines that fit the dialog window
         List<string> newLines = WrapTextOptimal(translated, maxLineLength);
@@ -170,7 +172,6 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
             {
                 // Update existing line
                 list[listIndex]!["parameters"]![0] = JsonValue.Create(newLines[j]);
-                _translated++;
             }
             else if (j >= originalCount)
             {
@@ -178,18 +179,16 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
                 JsonNode newCmd = templateCmd.Deserialize<JsonNode>()!;
                 newCmd["parameters"]![0] = JsonValue.Create(newLines[j]);
                 list.Insert(listIndex, newCmd);
-                _translated++;
                 i++; // Adjust the output index
             }
             else
             {
                 // Extra original lines: set to empty
                 list[listIndex]!["parameters"]![0] = JsonValue.Create("");
-                _skipped++;
             }
         }
 
-        Console.WriteLine($"  [{_translated}] {prepared.TextForTranslation[..Math.Min(80, prepared.TextForTranslation.Length)]}...");
+        Console.WriteLine($"  [{_fromApi + _fromCache}] {prepared.TextForTranslation[..Math.Min(80, prepared.TextForTranslation.Length)]}...");
         return i;
     }
 
@@ -212,14 +211,15 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
         if (textsToTranslate.Count == 0) return;
 
-        List<string?> results = TranslateTextBatch(textsToTranslate);
+        List<(string? text, bool fromCache)> results = TranslateTextBatch(textsToTranslate);
 
         for (int k = 0; k < indices.Count; k++)
         {
-            if (results[k] != null)
+            if (results[k].text != null)
             {
-                choices[indices[k]] = JsonValue.Create(results[k]);
-                _translated++;
+                choices[indices[k]] = JsonValue.Create(results[k].text);
+                if (results[k].fromCache) _fromCache++;
+                else _fromApi++;
             }
         }
     }
@@ -233,8 +233,9 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         if (string.IsNullOrWhiteSpace(text)) return;
 
         ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(text);
-        parameters[1] = JsonValue.Create(TranslateText(prepared));
-        _translated++;
+        parameters[1] = JsonValue.Create(TranslateText(prepared, out bool fromCache));
+        if (fromCache) _fromCache++;
+        else _fromApi++;
     }
 
     // ==================== Object files (Items, Weapons, etc.) ====================
@@ -243,7 +244,8 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
     {
         if (IsAlreadyTranslated(filePath)) return false;
 
-        _translated = 0;
+        _fromApi = 0;
+        _fromCache = 0;
         _skipped = 0;
 
         string json = File.ReadAllText(filePath);
@@ -271,27 +273,28 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
             .Select(f => f.node[f.field]!.GetValue<string>())
             .ToList();
 
-        List<string?> translations = TranslateTextBatch(textsForBatch);
+        List<(string? text, bool fromCache)> translations = TranslateTextBatch(textsForBatch);
 
         for (int i = 0; i < fieldsToTranslate.Count; i++)
         {
             (JsonNode node, string field, bool neatly) = fieldsToTranslate[i];
-            if (translations[i] != null)
+            if (translations[i].text != null)
             {
-                string result = translations[i]!;
+                string result = translations[i].text!;
                 if (neatly && result.Length > maxLineLength)
                 {
                     List<string> neatLines = WrapTextOptimal(result, maxLineLength);
                     result = string.Join("\n", neatLines);
                 }
                 node[field] = JsonValue.Create(result);
-                _translated++;
+                if (translations[i].fromCache) _fromCache++;
+                else _fromApi++;
             }
         }
 
         File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
         MarkAsTranslated(filePath);
-        Console.WriteLine($"  Translated: {_translated} | Skipped: {_skipped}");
+        Console.WriteLine($"  API: {_fromApi} | Cache: {_fromCache} | Skipped: {_skipped}");
         return true;
     }
 
@@ -305,7 +308,8 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
     {
         if (IsAlreadyTranslated(filePath)) return false;
 
-        _translated = 0;
+        _fromApi = 0;
+        _fromCache = 0;
         _skipped = 0;
 
         string json = File.ReadAllText(filePath);
@@ -316,7 +320,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
         File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
         MarkAsTranslated(filePath);
-        Console.WriteLine($"  Translated: {_translated} | Skipped: {_skipped}");
+        Console.WriteLine($"  API: {_fromApi} | Cache: {_fromCache} | Skipped: {_skipped}");
         return true;
     }
 
@@ -334,8 +338,9 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
                     if (!string.IsNullOrWhiteSpace(val) && val.Any(char.IsLetter))
                     {
                         ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(val);
-                        obj[prop.Key] = JsonValue.Create(TranslateText(prepared));
-                        _translated++;
+                        obj[prop.Key] = JsonValue.Create(TranslateText(prepared, out bool fromCache));
+                        if (fromCache) _fromCache++;
+                        else _fromApi++;
                     }
                 }
             }
@@ -356,7 +361,8 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
     {
         if (IsAlreadyTranslated(filePath)) return false;
 
-        _translated = 0;
+        _fromApi = 0;
+        _fromCache = 0;
         _skipped = 0;
 
         string json = File.ReadAllText(filePath);
@@ -375,8 +381,9 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
                 if (!string.IsNullOrWhiteSpace(val) && val.Any(char.IsLetter))
                 {
                     ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(val);
-                    msgObj[prop.Key] = JsonValue.Create(TranslateText(prepared));
-                    _translated++;
+                    msgObj[prop.Key] = JsonValue.Create(TranslateText(prepared, out bool fromCache));
+                    if (fromCache) _fromCache++;
+                    else _fromApi++;
                 }
             }
         }
@@ -393,7 +400,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
         File.WriteAllText(filePath, root.ToJsonString(WriteOptions));
         MarkAsTranslated(filePath);
-        Console.WriteLine($"  Translated: {_translated} | Skipped: {_skipped}");
+        Console.WriteLine($"  API: {_fromApi} | Cache: {_fromCache} | Skipped: {_skipped}");
         return true;
     }
 
@@ -426,7 +433,8 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
     {
         if (IsAlreadyTranslated(filePath)) return false;
 
-        _translated = 0;
+        _fromApi = 0;
+        _fromCache = 0;
         _skipped = 0;
 
         // Parse CSV respecting CRLF as row delimiter and LF inside quotes as content
@@ -467,30 +475,27 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
         // Translate in batches
         List<string> allTexts = textsToTranslate.Select(t => t.text).ToList();
-        List<string?> translations = TranslateTextBatch(allTexts);
+        List<(string? text, bool fromCache)> translations = TranslateTextBatch(allTexts);
 
         for (int i = 0; i < textsToTranslate.Count; i++)
         {
             int rowIdx = textsToTranslate[i].row;
-            string? result = translations[i];
-            if (result != null)
+            (string? text, bool fromCache) = translations[i];
+            if (text != null)
             {
                 // Ensure row has enough columns
                 while (rows[rowIdx].Count <= sourceCol)
                     rows[rowIdx].Add("");
-                rows[rowIdx][sourceCol] = result;
-                _translated++;
-            }
-            else
-            {
-                _skipped++;
+                rows[rowIdx][sourceCol] = text;
+                if (fromCache) _fromCache++;
+                else _fromApi++;
             }
         }
 
         // Write back as CSV with CRLF line endings
         File.WriteAllText(filePath, WriteCsv(rows));
         MarkAsTranslated(filePath);
-        Console.WriteLine($"  Translated: {_translated} | Skipped: {_skipped}");
+        Console.WriteLine($"  API: {_fromApi} | Cache: {_fromCache} | Skipped: {_skipped}");
         return true;
     }
 
@@ -812,7 +817,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
     /// <summary>
     /// Translates a text already prepared with ControlCodeHelper.
     /// </summary>
-    private string TranslateText(ControlCodeHelper.PreparedText prepared)
+    private string TranslateText(ControlCodeHelper.PreparedText prepared, out bool fromCache)
     {
         string leadingSpace = prepared.Original.Length > 0 && prepared.Original[0] == ' ' ? " " : "";
         string cleanText = prepared.TextForTranslation;
@@ -824,8 +829,11 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         if (_cache.TryGet(cleanText, out string cached))
         {
             _stats.AddCacheHit(cleanText.Length);
+            fromCache = true;
             return leadingSpace + ControlCodeHelper.Restore(cached, prepared);
         }
+
+        fromCache = false;
 
         // Apply glossary
         string textForApi = _glossary != null
@@ -868,7 +876,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
     /// <summary>
     /// Translates a batch of texts using the batch API when possible.
     /// </summary>
-    private List<string?> TranslateTextBatch(List<string> texts)
+    private List<(string? text, bool fromCache)> TranslateTextBatch(List<string> texts)
     {
         List<ControlCodeHelper.PreparedText> prepared = texts.Select(ControlCodeHelper.Prepare).ToList();
         List<string> cleanTexts = prepared.Select(p => p.TextForTranslation).ToList();
@@ -881,20 +889,20 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         }
 
         // Separate cached texts from those needing API
-        string?[] results = new string?[texts.Count];
+        (string? text, bool fromCache)[] results = new (string?, bool)[texts.Count];
         List<(int index, string text)> toTranslate = [];
 
         for (int i = 0; i < cleanTexts.Count; i++)
         {
             if (string.IsNullOrWhiteSpace(cleanTexts[i]) || !cleanTexts[i].Any(char.IsLetter))
             {
-                results[i] = null;
+                results[i] = (null, false);
                 continue;
             }
 
             if (_cache.TryGet(cleanTexts[i], out string cached))
             {
-                results[i] = ControlCodeHelper.Restore(cached, prepared[i]);
+                results[i] = (ControlCodeHelper.Restore(cached, prepared[i]), true);
                 _stats.AddCacheHit(cleanTexts[i].Length);
                 continue;
             }
@@ -931,7 +939,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
             if (result == null)
             {
-                results[idx] = null;
+                results[idx] = (null, false);
                 continue;
             }
 
@@ -946,7 +954,7 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
             result = HttpUtility.HtmlDecode(result);
             _cache.Set(cleanTexts[idx], result);
-            results[idx] = ControlCodeHelper.Restore(result, prepared[idx]);
+            results[idx] = (ControlCodeHelper.Restore(result, prepared[idx]), false);
 
             batchChars += cleanTexts[idx].Length;
             batchCount++;
@@ -968,8 +976,9 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
         }
 
         ControlCodeHelper.PreparedText prepared = ControlCodeHelper.Prepare(val);
-        node[fieldName] = JsonValue.Create(TranslateText(prepared));
-        _translated++;
+        node[fieldName] = JsonValue.Create(TranslateText(prepared, out bool fromCache));
+        if (fromCache) _fromCache++;
+        else _fromApi++;
     }
 
     private void TranslateStringArray(JsonNode? node)
@@ -994,14 +1003,15 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
 
         if (textsToTranslate.Count == 0) return;
 
-        List<string?> results = TranslateTextBatch(textsToTranslate);
+        List<(string? text, bool fromCache)> results = TranslateTextBatch(textsToTranslate);
 
         for (int k = 0; k < indices.Count; k++)
         {
-            if (results[k] != null)
+            if (results[k].text != null)
             {
-                arr[indices[k]] = JsonValue.Create(results[k]);
-                _translated++;
+                arr[indices[k]] = JsonValue.Create(results[k].text);
+                if (results[k].fromCache) _fromCache++;
+                else _fromApi++;
             }
         }
     }
