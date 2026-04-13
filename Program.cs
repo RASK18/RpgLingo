@@ -120,6 +120,7 @@ if (Directory.Exists(outputPath))
 // ==================== Initialize ====================
 TranslationCache cache = new(maxSizeMB: config.CacheMaxSizeMB);
 Translate translate = new(config);
+translate.SyncUsage();
 
 // ==================== Glossary ====================
 string glossaryPath = Path.Combine(exeDir, "glossary.json");

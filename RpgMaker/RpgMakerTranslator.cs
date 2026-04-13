@@ -487,12 +487,6 @@ public class RpgMakerTranslator(Translate translate, TranslationCache cache, Ses
             }
         }
 
-        // Update header to reflect target language
-        if (LanguageHeaders.TryGetValue(targetLang, out string[]? targetHeaders))
-            header[sourceCol] = targetHeaders[0]; // Use first (most readable) name
-        else
-            header[sourceCol] = targetLang.ToUpper();
-
         // Write back as CSV with CRLF line endings
         File.WriteAllText(filePath, WriteCsv(rows));
         MarkAsTranslated(filePath);

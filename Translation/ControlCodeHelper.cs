@@ -111,6 +111,12 @@ public static partial class ControlCodeHelper
         {
             string placeholder = $"{ScriptPrefix}{i}{TagSuffix}";
             result = result.Replace(placeholder, prepared.ScriptVars[i]);
+
+            if (!result.Contains($"{prepared.ScriptVars[i]} "))
+                result = result.Replace(prepared.ScriptVars[i], $"{prepared.ControlCodes[i]} ");
+
+            if (!result.Contains($" {prepared.ScriptVars[i]}"))
+                result = result.Replace(prepared.ScriptVars[i], $" {prepared.ControlCodes[i]}");
         }
 
         // Step 2: Restore control codes
@@ -118,6 +124,12 @@ public static partial class ControlCodeHelper
         {
             string placeholder = $"{TagPrefix}{i}{TagSuffix}";
             result = result.Replace(placeholder, prepared.ControlCodes[i]);
+
+            if (!result.Contains($"{prepared.ControlCodes[i]} "))
+                result = result.Replace(prepared.ControlCodes[i], $"{prepared.ControlCodes[i]} ");
+
+            if (!result.Contains($" {prepared.ControlCodes[i]}"))
+                result = result.Replace(prepared.ControlCodes[i], $" {prepared.ControlCodes[i]}");
         }
 
         // Step 3: Reinsert newlines at proportional positions

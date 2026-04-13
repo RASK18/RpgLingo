@@ -57,6 +57,39 @@ public class Translate
 
     private static string ClientKey(TranslationEndpoint ep) => $"{ep.Service}_{ep.ApiKey}";
 
+    /// <summary>
+    /// Syncs usage data from APIs that support it (DeepL).
+    /// Google and Azure don't expose usage APIs, so they keep local tracking.
+    /// </summary>
+    public void SyncUsage()
+    {
+        bool updated = false;
+        foreach (TranslationEndpoint ep in _endpoints)
+        {
+            if (ep.Service != TranslationService.DeepL) continue;
+            if (!_clients.ContainsKey(ClientKey(ep))) continue;
+
+            try
+            {
+                Translator client = (Translator)_clients[ClientKey(ep)];
+                Usage usage = client.GetUsageAsync().Result;
+                if (usage.Character != null)
+                {
+                    ep.CharsUsed = usage.Character.Count;
+                    ep.CharLimit = usage.Character.Limit;
+                    updated = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"    Warning: Could not sync usage for {ep.DisplayName}: {ex.Message}");
+            }
+        }
+
+        if (updated)
+            _config.Save();
+    }
+
     public string? TranslateText(string text)
     {
         if (string.IsNullOrWhiteSpace(text) || text.All(c => !char.IsLetter(c)))
@@ -73,7 +106,8 @@ public class Translate
 
     /// <summary>
     /// Translates multiple texts in a single API call (batch).
-    /// Only supported by DeepL. Other services fall back to one-by-one.
+    /// Tries all DeepL endpoints for batch, using each until exhausted.
+    /// Falls back to one-by-one with progress for non-DeepL endpoints.
     /// </summary>
     public List<string?> TranslateTextBatch(List<string> texts)
     {
@@ -97,31 +131,79 @@ public class Translate
 
         if (toTranslate.Count == 0) return results.ToList();
 
-        // Try batch with the first available DeepL endpoint
-        long totalChars = toTranslate.Sum(t => (long)t.text.Length);
-        TranslationEndpoint? deepLEndpoint = _endpoints.FirstOrDefault(ep =>
-            ep.Service == TranslationService.DeepL &&
-            ep.HasQuota(totalChars) &&
-            _clients.ContainsKey(ClientKey(ep)));
+        // Try batch with each available DeepL endpoint, chunk by chunk
+        const int maxBatchSize = 50;
+        int batchProgress = 0;
 
-        if (deepLEndpoint != null)
+        foreach (TranslationEndpoint ep in _endpoints)
         {
-            List<string> batchTexts = toTranslate.Select(t => t.text).ToList();
-            List<string> translations = ExecuteWithRetry(() =>
-                ExecuteDeepLBatch(batchTexts, deepLEndpoint));
+            if (ep.Service != TranslationService.DeepL) continue;
+            if (ep.CharsRemaining <= 0) continue;
+            if (!_clients.ContainsKey(ClientKey(ep))) continue;
 
-            for (int i = 0; i < toTranslate.Count; i++)
+            Translator client = (Translator)_clients[ClientKey(ep)];
+            TextTranslateOptions opt = new()
             {
-                results[toTranslate[i].index] = translations[i];
-                _inflight[toTranslate[i].text] = translations[i];
-                AppendContext(toTranslate[i].text);
+                Formality = Formality.PreferLess,
+                PreserveFormatting = true,
+                Context = _context,
+                ModelType = ModelType.PreferQualityOptimized,
+                TagHandling = "html"
+            };
+
+            // Process remaining texts in chunks of 50
+            while (batchProgress < toTranslate.Count)
+            {
+                List<(int index, string text)> chunk = toTranslate.Skip(batchProgress).Take(maxBatchSize).ToList();
+                string[] chunkTexts = chunk.Select(t => t.text).ToArray();
+
+                try
+                {
+                    TextResult[] chunkResults = ExecuteWithRetry(() =>
+                        client.TranslateTextAsync(chunkTexts, _sourceLang, _targetLang, opt).Result);
+
+                    ep.CharsUsed += chunkResults.Sum(r => r.BilledCharacters);
+
+                    for (int j = 0; j < chunk.Count; j++)
+                    {
+                        string translated = chunkResults[j].DetectedSourceLanguageCode == _targetLang
+                            ? chunk[j].text
+                            : chunkResults[j].Text;
+
+                        results[chunk[j].index] = translated;
+                        _inflight[chunk[j].text] = translated;
+                        AppendContext(chunk[j].text);
+                    }
+
+                    batchProgress += chunk.Count;
+                }
+                catch (Exception ex) when (IsQuotaExceeded(ex))
+                {
+                    Console.WriteLine($"    Quota exceeded for {ep.DisplayName}, trying next...");
+                    ep.CharsUsed = ep.CharLimit;
+                    _config.Save();
+                    break; // Try next DeepL endpoint
+                }
             }
+
+            _config.Save();
+            if (batchProgress >= toTranslate.Count)
+                return results.ToList(); // All done via batch
         }
-        else
+
+        // Fallback: translate remaining texts one by one with progress
+        if (batchProgress < toTranslate.Count)
         {
-            // Fallback: translate one by one
-            foreach ((int index, string text) in toTranslate)
+            List<(int index, string text)> remaining = toTranslate.Skip(batchProgress).ToList();
+            int done = 0;
+            Console.Write($"    Translating one by one: ");
+            foreach ((int index, string text) in remaining)
+            {
                 results[index] = TranslateText(text);
+                done++;
+                Console.Write($"\r    Translating one by one: {done}/{remaining.Count}");
+            }
+            Console.WriteLine();
         }
 
         return results.ToList();
@@ -134,13 +216,23 @@ public class Translate
             if (!ep.HasQuota(text.Length)) continue;
             if (!_clients.ContainsKey(ClientKey(ep))) continue;
 
-            return ep.Service switch
+            try
             {
-                TranslationService.DeepL => ExecuteDeepL(text, ep),
-                TranslationService.Google => ExecuteGoogle(text, ep),
-                TranslationService.Azure => ExecuteAzure(text, ep),
-                _ => throw new NotSupportedException()
-            };
+                return ep.Service switch
+                {
+                    TranslationService.DeepL => ExecuteDeepL(text, ep),
+                    TranslationService.Google => ExecuteGoogle(text, ep),
+                    TranslationService.Azure => ExecuteAzure(text, ep),
+                    _ => throw new NotSupportedException()
+                };
+            }
+            catch (Exception ex) when (IsQuotaExceeded(ex))
+            {
+                Console.WriteLine($"    Quota exceeded for {ep.DisplayName}, trying next endpoint...");
+                ep.CharsUsed = ep.CharLimit; // Mark as exhausted
+                _config.Save();
+                continue; // Try next endpoint
+            }
         }
 
         throw new InvalidOperationException(
@@ -154,6 +246,10 @@ public class Translate
             try
             {
                 return translateFunc();
+            }
+            catch (Exception ex) when (attempt < MaxRetries - 1 && IsQuotaExceeded(ex))
+            {
+                throw; // Don't retry quota errors, propagate immediately
             }
             catch (DeepLException ex) when (attempt < MaxRetries - 1 && IsTooManyRequests(ex))
             {
@@ -176,6 +272,21 @@ public class Translate
         return ex.Message.Contains("429") || ex is TooManyRequestsException;
     }
 
+    private static bool IsQuotaExceeded(Exception ex)
+    {
+        // Check the full exception chain (AggregateException wraps the real error)
+        string fullMessage = ex.ToString();
+        if (fullMessage.Contains("Quota", StringComparison.OrdinalIgnoreCase))
+            return true;
+        if (ex is DeepL.QuotaExceededException)
+            return true;
+        if (ex is AggregateException agg)
+            return agg.InnerExceptions.Any(IsQuotaExceeded);
+        if (ex.InnerException != null)
+            return IsQuotaExceeded(ex.InnerException);
+        return false;
+    }
+
     // ==================== DeepL ====================
 
     private string ExecuteDeepL(string text, TranslationEndpoint ep)
@@ -195,44 +306,6 @@ public class Translate
         _config.Save();
 
         return result.DetectedSourceLanguageCode == _targetLang ? text : result.Text;
-    }
-
-    /// <summary>
-    /// Translates multiple texts in a single DeepL API call.
-    /// Up to 50 texts per call (API limit).
-    /// </summary>
-    private List<string> ExecuteDeepLBatch(List<string> texts, TranslationEndpoint ep)
-    {
-        Translator client = (Translator)_clients[ClientKey(ep)];
-        TextTranslateOptions opt = new()
-        {
-            Formality = Formality.PreferLess,
-            PreserveFormatting = true,
-            Context = _context,
-            ModelType = ModelType.PreferQualityOptimized,
-            TagHandling = "html"
-        };
-
-        const int maxBatchSize = 50;
-        List<string> allResults = [];
-
-        for (int i = 0; i < texts.Count; i += maxBatchSize)
-        {
-            string[] batch = texts.Skip(i).Take(maxBatchSize).ToArray();
-            TextResult[] results = client.TranslateTextAsync(batch, _sourceLang, _targetLang, opt).Result;
-
-            ep.CharsUsed += results.Sum(r => r.BilledCharacters);
-
-            foreach (TextResult result in results)
-            {
-                allResults.Add(result.DetectedSourceLanguageCode == _targetLang
-                    ? texts[allResults.Count]
-                    : result.Text);
-            }
-        }
-
-        _config.Save();
-        return allResults;
     }
 
     // ==================== Google ====================
